@@ -1,7 +1,8 @@
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
-const String baseUrl = "http://192.168.0.205:9500/api";
+const String baseUrl = "http://52.187.89.101:9000/api";
+// const String baseUrl = "https://app.cubehous.com/api";
 
 class BaseClient {
   static const int timeoutDuration = 30; // seconds
@@ -87,6 +88,7 @@ class BaseClient {
     switch (response.statusCode) {
       case 200:
       case 201:
+        if (response.body.trim().isEmpty) return <String, dynamic>{};
         return jsonDecode(response.body);
       case 400:
         throw BadRequestException(response.body);

@@ -1,775 +1,429 @@
-// import 'package:flutter/material.dart';
-// import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'dart:math' as math;
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'api/base_client.dart';
+import 'common/session_manager.dart';
+import 'login_company.dart';
+import 'models/company_selection.dart';
 
-// class LoginView extends StatefulWidget {
-//   LoginView({Key? key, required this.fromHome}) : super(key: key);
+class LoginPage extends StatefulWidget {
+  const LoginPage({super.key});
 
-//   bool fromHome;
+  @override
+  State<LoginPage> createState() => _LoginPageState();
+}
 
-//   @override
-//   State<LoginView> createState() => _LoginViewState();
-// }
+class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
+  late final AnimationController _waveController;
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _obscurePassword = true;
+  bool _rememberMe = false;
+  bool _isLoading = false;
+  String? _errorMessage;
 
-// class _LoginViewState extends State<LoginView> with TickerProviderStateMixin {
-//   final storage = new FlutterSecureStorage();
+  @override
+  void initState() {
+    super.initState();
+    _waveController = AnimationController(
+      value: 0.0,
+      duration: const Duration(seconds: 25),
+      upperBound: 1,
+      lowerBound: -1,
+      vsync: this,
+    )..repeat();
+    _loadSavedCredentials();
+  }
 
-//   late AnimationController _controller;
-//   final TextEditingController emailController = TextEditingController();
-//   final TextEditingController passwordController = TextEditingController();
+  Future<void> _loadSavedCredentials() async {
+    final rememberMe = await SessionManager.getRememberMe();
+    final savedEmail = await SessionManager.getSavedEmail();
+    final savedPassword = await SessionManager.getSavedPassword();
+    if (rememberMe && savedEmail.isNotEmpty) {
+      setState(() {
+        _rememberMe = true;
+        _emailController.text = savedEmail;
+        if (savedPassword.isNotEmpty) _passwordController.text = savedPassword;
+      });
+    }
+  }
 
-//   int _userID = 0;
-//   String _username = "Username";
-//   int _companyID = 0;
-//   int? _userMappingID;
-//   bool _valueRememberMe = false;
-//   int _validateUserLogin = 1;
-//   bool _isLoading = false;
-//   List<UserCompanyLoginSelectionDto> companyList = [];
+  @override
+  void dispose() {
+    _waveController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
 
-//   UserCompanyLoginSelectionDto _company = new UserCompanyLoginSelectionDto(
-//       userMappingID: 0,
-//       userTypeID: 0,
-//       type: null,
-//       companyName: "Select Company",
-//       isDeletedTemporarily: true);
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    final topInset = MediaQuery.of(context).padding.top;
+    final headerHeight = size.height * 0.48;
 
-//   @override
-//   void initState() {
-//     super.initState();
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Scaffold(
+        body: Stack(
+          children: [
+            SingleChildScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              child: Column(
+                children: [
+                  // ── Animated wave header ──────────────────
+                  SizedBox(
+                    height: headerHeight,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        // Wave animation
+                        AnimatedBuilder(
+                          animation: _waveController,
+                          builder: (_, __) => ClipPath(
+                            clipper: _WaveClipper(_waveController.value),
+                            child: Container(
+                              height: headerHeight,
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.bottomLeft,
+                                  end: Alignment.topRight,
+                                  colors: [
+                                    Color(0xFF1E2F4A),
+                                    Color(0xFF5B8FD4),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        // Logo centred over the wave
+                        Padding(
+                          padding: EdgeInsets.only(top: topInset, bottom: 32),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Image.asset(
+                                'assests/images/logo.png',
+                                height: 150,
+                                fit: BoxFit.contain,
+                                errorBuilder: (_, __, ___) => const Icon(
+                                  Icons.inventory_2_outlined,
+                                  size: 140,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              const Text(
+                                'Cubehous',
+                                style: TextStyle(
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.white,
+                                  letterSpacing: 1.5,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                   Text(
+                    'Sign in to your account',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.black87,
+                      letterSpacing: 0.3,
+                    ),
+                   ),
+                  // ── Form ─────────────────────────────────
+                  _buildForm(context),
+                ],
+              ),
+            ),
+            // Loading overlay
+            if (_isLoading)
+              Container(
+                color: Colors.black45,
+                child: const Center(
+                  child: CircularProgressIndicator(color: Colors.white),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 
-//     checkConnection();
+  Widget _buildForm(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(28, 20, 28, 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Email
+          TextField(
+            controller: _emailController,
+            keyboardType: TextInputType.emailAddress,
+            textInputAction: TextInputAction.next,
+            autocorrect: false,
+            decoration: const InputDecoration(
+              labelText: 'Email',
+              prefixIcon: Icon(Icons.email_outlined),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.all(Radius.circular(12)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Password
+          TextField(
+            controller: _passwordController,
+            obscureText: _obscurePassword,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _login(),
+            decoration: InputDecoration(
+              labelText: 'Password',
+              prefixIcon: const Icon(Icons.lock_outlined),
+              suffixIcon: IconButton(
+                icon: Icon(_obscurePassword
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined),
+                onPressed: () =>
+                    setState(() => _obscurePassword = !_obscurePassword),
+              ),
+              border: const OutlineInputBorder(
+                borderRadius: BorderRadius.all(Radius.circular(12)),
+              ),
+            ),
+          ),
+          // Remember Me
+          Row(
+            children: [
+              Checkbox(
+                value: _rememberMe,
+                activeColor: Theme.of(context).colorScheme.primary,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                onChanged: (v) => setState(() => _rememberMe = v ?? false),
+              ),
+              GestureDetector(
+                onTap: () => setState(() => _rememberMe = !_rememberMe),
+                child: const Text('Remember Me',
+                    style: TextStyle(fontSize: 14)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          // Login button
+          FilledButton(
+            onPressed: _isLoading ? null : _login,
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(52),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              'Login',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+          ),
+          const SizedBox(height: 20),
+          // Error message
+          if (_errorMessage != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.error_outline,
+                      color: Colors.red.shade600, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _errorMessage!,
+                      style: TextStyle(
+                          color: Colors.red.shade700, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 
-//     _controller = AnimationController(
-//       value: 0.0,
-//       duration: Duration(seconds: 25),
-//       upperBound: 1,
-//       lowerBound: -1,
-//       vsync: this,
-//     )..repeat();
-//   }
+  Future<void> _login() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
 
-//   @override
-//   void dispose() {
-//     _controller.dispose();
-//     super.dispose();
-//   }
+    if (email.isEmpty) {
+      setState(() => _errorMessage = 'Please enter your email address');
+      return;
+    }
+    if (password.isEmpty) {
+      setState(() => _errorMessage = 'Please enter your password');
+      return;
+    }
 
-//   @override
-//   Widget build(BuildContext context) {
-//     var size = MediaQuery.of(context).size;
-//     return Scaffold(
-//       backgroundColor: Colors.white,
-//       body: SingleChildScrollView(
-//         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-//         child: Stack(
-//           children: [
-//             Column(
-//               children: <Widget>[
-//                 Stack(
-//                   alignment: Alignment.center,
-//                   children: [
-//                     AnimatedBuilder(
-//                       animation: _controller,
-//                       builder: (BuildContext context, Widget? child) {
-//                         return ClipPath(
-//                           clipper: DrawClip(_controller.value),
-//                           child: Container(
-//                             height: size.height * 0.5,
-//                             decoration: BoxDecoration(
-//                               gradient: LinearGradient(
-//                                 begin: Alignment.bottomLeft,
-//                                 end: Alignment.topRight,
-//                                 colors: [Color(0xFFFFA726), Color(0xFFE65100)],
-//                               ),
-//                             ),
-//                           ),
-//                         );
-//                       },
-//                     ),
-//                     Container(
-//                       padding: EdgeInsets.only(bottom: 30),
-//                       child: Image.asset(
-//                         'assets/images/cubehous_logo_blackNwhite.png',
-//                         height: 120,
-//                       ),
-//                     ),
-//                   ],
-//                 ),
-//                 Text(
-//                   'Login to your Account',
-//                   style: TextStyle(
-//                       fontSize: 15,
-//                       fontWeight: FontWeight.w500,
-//                       fontStyle: FontStyle.italic),
-//                 ),
-//                 SizedBox(height: 10),
-//                 Container(
-//                   width: size.width * 0.8,
-//                   margin: EdgeInsets.only(top: 20),
-//                   child: TextField(
-//                     controller: emailController,
-//                     keyboardType: TextInputType.emailAddress,
-//                     decoration: InputDecoration(
-//                       hintText: 'Email',
-//                       hintStyle:
-//                           TextStyle(color: Color(0xFFACACAC), fontSize: 14),
-//                       contentPadding:
-//                           EdgeInsets.only(top: 20, bottom: 20, left: 20),
-//                       enabledBorder: OutlineInputBorder(
-//                         borderSide: BorderSide(color: Color(0xFFDADADA)),
-//                         borderRadius: BorderRadius.all(Radius.circular(30.0)),
-//                       ),
-//                       focusedBorder: OutlineInputBorder(
-//                         borderSide: BorderSide(color: Color(0xFFBDBDBD)),
-//                         borderRadius: BorderRadius.all(Radius.circular(30.0)),
-//                       ),
-//                     ),
-//                   ),
-//                 ),
-//                 Container(
-//                   width: size.width * 0.8,
-//                   margin: EdgeInsets.only(top: 18),
-//                   child: TextField(
-//                     controller: passwordController,
-//                     obscureText: true,
-//                     decoration: InputDecoration(
-//                       hintText: 'Password',
-//                       hintStyle:
-//                           TextStyle(color: Color(0xFFACACAC), fontSize: 14),
-//                       contentPadding:
-//                           EdgeInsets.only(top: 20, bottom: 20, left: 20),
-//                       enabledBorder: OutlineInputBorder(
-//                         borderSide: BorderSide(color: Color(0xFFDADADA)),
-//                         borderRadius: BorderRadius.all(Radius.circular(30.0)),
-//                       ),
-//                       focusedBorder: OutlineInputBorder(
-//                         borderSide: BorderSide(color: Color(0xFFBDBDBD)),
-//                         borderRadius: BorderRadius.all(Radius.circular(30.0)),
-//                       ),
-//                     ),
-//                   ),
-//                 ),
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
 
-//                 ///Remember Me
-//                 Container(
-//                   width: size.width * 0.8,
-//                   child: Row(
-//                     children: [
-//                       Checkbox(
-//                         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-//                         value: this._valueRememberMe,
-//                         activeColor:
-//                             GlobalColors.mainColor, // Color when active
-//                         checkColor: Colors.white, // Checkmark color
+    try {
+      final userID = await BaseClient.get(
+        '/User/ValidateUserLogin'
+        '?email=${Uri.encodeComponent(email)}'
+        '&password=${Uri.encodeComponent(password)}',
+      ) as int;
 
-//                         onChanged: (bool? value) {
-//                           setState(() {
-//                             this._valueRememberMe = value!;
-//                           });
-//                         },
-//                       ),
-//                       Text(
-//                         "Remember Me",
-//                         style: TextStyle(
-//                           fontSize: 12,
-//                           color: Colors.black87,
-//                         ),
-//                       ),
-//                     ],
-//                   ),
-//                 ),
+      final userJson = await BaseClient.get('/User/GetUser?userid=$userID')
+          as Map<String, dynamic>;
+      final username = (userJson['name'] as String?) ?? '';
+      final profileImage = (userJson['profileImage'] as String?) ?? '';
 
-//                 SizedBox(height: 20),
-//                 InkWell(
-//                   onTap: () async {
-//                     var connectivityResult =
-//                         await Connectivity().checkConnectivity();
-//                     if (connectivityResult == ConnectivityResult.none) {
-//                       Get.defaultDialog(
-//                         backgroundColor: Colors.white,
-//                         title: "No Internet Connection",
-//                         titleStyle: TextStyle(
-//                           color: GlobalColors.mainColor,
-//                           fontSize: 20,
-//                           fontWeight: FontWeight.w600,
-//                         ),
-//                         titlePadding: EdgeInsets.only(top: 20),
-//                         content: Container(
-//                           padding: EdgeInsets.all(8.0),
-//                           child: Column(
-//                             children: [
-//                               Center(
-//                                 child: Text(
-//                                   "Please check your internet.",
-//                                   textAlign: TextAlign.center,
-//                                 ),
-//                               )
-//                             ],
-//                           ),
-//                         ),
-//                         confirm: TextButton(
-//                           onPressed: () {
-//                             Get.back();
-//                           },
-//                           style: TextButton.styleFrom(
-//                             backgroundColor: GlobalColors.mainColor,
-//                             padding: EdgeInsets.symmetric(horizontal: 15),
-//                             shape: RoundedRectangleBorder(
-//                               borderRadius: BorderRadius.circular(20),
-//                               side: BorderSide(color: GlobalColors.mainColor),
-//                             ),
-//                           ),
-//                           child: Text(
-//                             "OK",
-//                             style: TextStyle(color: Colors.white),
-//                           ),
-//                         ),
-//                       );
-//                     } else {
-//                       fetchUsers();
-//                     }
-//                   },
-//                   child: SizedBox(
-//                     width: 100,
-//                     height: 50,
-//                     child: Container(
-//                       alignment: Alignment.center,
-//                       decoration: BoxDecoration(
-//                         color: GlobalColors.mainColor,
-//                         borderRadius: BorderRadius.circular(20),
-//                         boxShadow: [
-//                           BoxShadow(
-//                             color: Colors.black.withOpacity(0.1),
-//                             blurRadius: 10,
-//                           )
-//                         ],
-//                       ),
-//                       child: const Text(
-//                         'Login',
-//                         style: TextStyle(
-//                           color: Colors.white,
-//                           fontWeight: FontWeight.w600,
-//                           fontSize: 18,
-//                         ),
-//                       ),
-//                     ),
-//                   ),
-//                 ),
-//                 SizedBox(height: 20),
-//               ],
-//             ),
-//             if (_isLoading)
-//               Positioned.fill(
-//                 child: Container(
-//                   color: Colors.black.withOpacity(0.5),
-//                   child: Center(
-//                     child: LoadingPage(),
-//                   ),
-//                 ),
-//               ),
-//           ],
-//         ),
-//       ),
-//     );
-//   }
+      final raw = await BaseClient.get(
+        '/User/GetCompanySelectionList?userid=$userID',
+      ) as List<dynamic>;
+      final companies = raw
+          .map((e) => CompanySelection.fromJson(e as Map<String, dynamic>))
+          .toList();
 
-//   Future<void> checkConnection() async {
-//     var connectivityResult = await Connectivity().checkConnectivity();
-//     if (connectivityResult == ConnectivityResult.none) {
-//       Get.defaultDialog(
-//         backgroundColor: Colors.white,
-//         title: "No Internet Connection",
-//         titleStyle: TextStyle(
-//           color: GlobalColors.mainColor,
-//           fontSize: 20,
-//           fontWeight: FontWeight.w600,
-//         ),
-//         titlePadding: EdgeInsets.only(top: 20),
-//         content: Container(
-//           padding: EdgeInsets.all(8.0),
-//           child: Column(
-//             children: [
-//               Center(
-//                 child: Text(
-//                   "Please check your internet.",
-//                   textAlign: TextAlign.center,
-//                 ),
-//               )
-//             ],
-//           ),
-//         ),
-//         confirm: TextButton(
-//           onPressed: () {
-//             Get.back();
-//           },
-//           style: TextButton.styleFrom(
-//             backgroundColor: GlobalColors.mainColor,
-//             padding: EdgeInsets.symmetric(horizontal: 15),
-//             shape: RoundedRectangleBorder(
-//               borderRadius: BorderRadius.circular(20),
-//               side: BorderSide(color: GlobalColors.mainColor),
-//             ),
-//           ),
-//           child: Text(
-//             "OK",
-//             style: TextStyle(color: Colors.white),
-//           ),
-//         ),
-//       );
-//     } else {
-//       checkVersion();
-//     }
-//   }
+      if (!mounted) return;
 
-//   void checkVersion() async {
-//     String secretKey = "FGBpUTp3Msn2w9j";
-//     String versionCode = "9.0.12.21";
+      if (companies.isEmpty) {
+        setState(() => _errorMessage = 'No company found for this account');
+        return;
+      }
 
-//     final response = await BaseClient()
-//         .get('/VersionCheck/GetMobileAppVersionInfo?secretKey=${secretKey}');
+      // Save credentials + update remember me on server
+      await SessionManager.saveRememberMe(_rememberMe);
+      await SessionManager.saveSavedEmail(_rememberMe ? email : '');
+      await SessionManager.saveSavedPassword(_rememberMe ? _passwordController.text : '');
 
-//     if (response.statusCode == 200) {
-//       if (response.body != null && response.body.isNotEmpty) {
-//         final Map<String, dynamic> responseData = jsonDecode(response.body);
-//         String versionNo = responseData['versionNo'];
-//         if (versionNo == versionCode) {
-//         } else {
-//           bool updateRequire = responseData['isForce'];
-//           if (updateRequire) {
-//             showUpdateDialog();
-//             return;
-//           } else {
-//             showUpdateDialog2();
-//           }
-//         }
-//       }
-//     }
+      if (_rememberMe) {
+        try {
+          await BaseClient.get(
+            '/User/UpdateMobileRemember'
+            '?email=${Uri.encodeComponent(email)}&grant=1',
+          );
+        } catch (_) {
+          // Non-critical — continue
+        }
+      }
 
-//     checkLogin();
-//   }
+      if (!mounted) return;
 
-//   void checkLogin() async {
-//     int token = await getToken();
-//     if (token == 1) {
-//       if (!widget.fromHome) {
-//         await storeTokenAndData();
-//       }
-//     }
-//   }
+      if (companies.length == 1) {
+        await _createSession(
+          company: companies.first,
+          userID: userID,
+          username: username,
+          profileImage: profileImage,
+        );
+      } else {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => LoginCompanyPage(
+              companies: companies,
+              userID: userID,
+              username: username,
+              profileImage: profileImage,
+            ),
+          ),
+        );
+      }
+    } on UnauthorizedException {
+      setState(() => _errorMessage = 'Invalid email or password');
+    } on TimeoutException {
+      setState(
+          () => _errorMessage = 'Connection timed out. Please try again');
+    } catch (_) {
+      setState(() => _errorMessage = 'Invalid email or password');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
-//   Future<int> getToken() async {
-//     String? nUserID = await storage.read(key: "userid");
-//     String? nUsername = await storage.read(key: "username");
-//     String? nEmail = await storage.read(key: "email");
-//     String? nPassword = await storage.read(key: "usercredential");
-//     String? nCompanyID = await storage.read(key: "companyid");
-//     String? nRemember = await storage.read(key: "remember");
-//     String? nUserMappingID = await storage.read(key: "userMappingID");
+  Future<void> _createSession({
+    required CompanySelection company,
+    required int userID,
+    required String username,
+    required String profileImage,
+  }) async {
+    final sessionJson = await BaseClient.get(
+      '/User/CreateUserSession?usermappingid=${company.userMappingID}',
+    ) as Map<String, dynamic>;
 
-//     String? nCompany = await storage.read(key: "company");
+    final session = sessionJson['userSession'] as Map<String, dynamic>?;
 
-//     if (nCompany != null && nCompany.isNotEmpty) {
-//       _company = UserCompanyLoginSelectionDto.deserialize(nCompany);
-//     }
+    if (sessionJson.isEmpty || session == null || session.isEmpty) {
+      setState(() => _errorMessage = 'You have no access to this company.');
+      return;
+    }
 
-//     // if (_company != null) {
-//     //   company = companylist[0];
-//     // }
+    await SessionManager.saveSession(
+      userID: userID,
+      userMappingID: company.userMappingID,
+      companyID: company.companyID,
+      defaultLocationID: (session['defaultLocationID'] as int?) ?? 0,
+      username: username,
+      companyName: company.companyName,
+      userSessionID: (session['userSessionID'] as String?) ?? '',
+      companyGUID: (session['companyGUID'] as String?) ?? '',
+      apiKey: (session['apiKey'] as String?) ?? '',
+      isEnableTax: (session['isEnableTax'] as bool?) ?? false,
+      isAutoBatchNo: (session['isAutoBatchNo'] as bool?) ?? false,
+      batchNoFormat: session['batchNoFormat'] as String?,
+      salesDecimalPoint: (session['salesDecimalPoint'] as int?) ?? 2,
+      purchaseDecimalPoint: (session['purchaseDecimalPoint'] as int?) ?? 2,
+      quantityDecimalPoint: (session['quantityDecimalPoint'] as int?) ?? 2,
+      costDecimalPoint: (session['costDecimalPoint'] as int?) ?? 2,
+    );
 
-//     if (nUserID != null &&
-//         nUsername != null &&
-//         nEmail != null &&
-//         nPassword != null &&
-//         nCompanyID != null &&
-//         nRemember != null &&
-//         nUserMappingID != null) {
-//       setState(() {
-//         _userID = int.tryParse(nUserID) ?? 0;
-//         _username = nUsername;
-//         emailController.text = nEmail;
-//         passwordController.text = nPassword;
-//         _companyID = int.tryParse(nCompanyID) ?? 0;
-//         _userMappingID = int.tryParse(nUserMappingID) ?? 0;
-//         _valueRememberMe = (nRemember == "true");
-//       });
+    if (profileImage.isNotEmpty) {
+      await SessionManager.saveProfileImage(profileImage);
+    }
 
-//       final response3 = await BaseClient().get(
-//         '/User/ValidateMobileRemember?email=' +
-//             Uri.encodeComponent(nEmail) +
-//             '&password=' +
-//             Uri.encodeComponent(nPassword),
-//       );
+    if (mounted) {
+      Navigator.of(context).pushReplacementNamed('/home');
+    }
+  }
+}
 
-//       if (response3.statusCode == 200) {
-//         if (response3.body != null && response3.body.isNotEmpty) {
-//           if (!_valueRememberMe) {
-//             return 0;
-//           } else {
-//             return int.parse(response3.body);
-//           }
-//         } else {
-//           CommonUtils.showErrorToast(context, 'Please try again');
-//           return 0;
-//         }
-//       } else {
-//         CommonUtils.showErrorToast(context, 'Please try again');
-//         return 0;
-//       }
-//     } else {
-//       return 0;
-//     }
-//   }
+// ─────────────────────────────────────────────
+// Wave clipper
+// ─────────────────────────────────────────────
 
-//   Future<void> storeTokenAndData() async {
-//     final response = await BaseClient().get(
-//         '/User/CreateUserSession?usermappingid=' + _userMappingID.toString());
+class _WaveClipper extends CustomClipper<Path> {
+  final double move;
+  static const double _slice = math.pi;
 
-//     if (response.statusCode == 200) {
-//       if (response.body != null) {
-//         final Map<String, dynamic> responseData = jsonDecode(response.body);
-//         List<dynamic> dynamicAccessRights = responseData['userAccessRights'];
+  const _WaveClipper(this.move);
 
-//         // Convert List<dynamic> to List<String>
-//         List<String> accessRights = List<String>.from(dynamicAccessRights);
-//         Provider.of<UserAccessRightsProvider>(context, listen: false)
-//             .setAccessRights(accessRights);
+  @override
+  Path getClip(Size size) {
+    final path = Path();
+    path.lineTo(0, size.height * 0.85);
+    final xCenter =
+        size.width * 0.5 + (size.width * 0.8 + 1) * math.sin(move * _slice);
+    final yCenter = size.height * 0.85 + 60 * math.cos(move * _slice);
+    path.quadraticBezierTo(xCenter, yCenter, size.width, size.height * 0.85);
+    path.lineTo(size.width, 0);
+    return path;
+  }
 
-//         final int defaultLocationID =
-//             responseData['userSession']['defaultLocationID'];
-//         final String userSessionID =
-//             responseData['userSession']['userSessionID'];
-//         final String companyGUID = responseData['userSession']['companyGUID'];
-//         final String apiKey = responseData['userSession']['apiKey'];
-//         final bool isEnableTax = responseData['userSession']['isEnableTax'];
-//         final bool isAutoBatchNo = responseData['userSession']['isAutoBatchNo'];
-//         final String? batchNoFormat =
-//             responseData['userSession']['batchNoFormat'];
-//         final int salesDecimalPoint =
-//             responseData['userSession']['salesDecimalPoint'];
-//         final int purchaseDecimalPoint =
-//             responseData['userSession']['purchaseDecimalPoint'];
-//         final int quantityDecimalPoint =
-//             responseData['userSession']['quantityDecimalPoint'];
-//         final int costDecimalPoint =
-//             responseData['userSession']['costDecimalPoint'];
-
-//         String nEnableTax = isEnableTax.toString();
-//         String nAutoBatch = isAutoBatchNo.toString();
-
-//         await storage.write(key: "username", value: _username);
-//         await storage.write(key: "companyName", value: _company.companyName);
-//         await storage.write(
-//             key: "company",
-//             value: UserCompanyLoginSelectionDto.serialize(_company));
-//         await storage.write(key: "email", value: emailController.text);
-//         await storage.write(
-//             key: "usercredential", value: passwordController.text);
-//         await storage.write(
-//             key: "remember", value: _valueRememberMe.toString());
-//         await storage.write(key: "userid", value: _userID.toString());
-//         await storage.write(key: "companyid", value: _companyID.toString());
-//         await storage.write(
-//             key: "defaultLocation", value: defaultLocationID.toString());
-//         await storage.write(
-//             key: "userSessionID", value: userSessionID.toString());
-//         await storage.write(key: "companyGUID", value: companyGUID);
-//         await storage.write(key: "apiKey", value: apiKey);
-//         await storage.write(key: "isEnableTax", value: nEnableTax);
-//         await storage.write(key: "isAutoBatchNo", value: nAutoBatch);
-//         await storage.write(key: "batchNoFormat", value: batchNoFormat);
-//         await storage.write(
-//             key: "salesDecimalPoint", value: salesDecimalPoint.toString());
-//         await storage.write(
-//             key: "purchaseDecimalPoint",
-//             value: purchaseDecimalPoint.toString());
-//         await storage.write(
-//             key: "quantityDecimalPoint",
-//             value: quantityDecimalPoint.toString());
-//         await storage.write(
-//             key: "costDecimalPoint", value: costDecimalPoint.toString());
-
-//         await BaseClient().get('/User/UpdateMobileRemember?email=' +
-//             emailController.text +
-//             '&grant=1');
-
-//         Get.offAll(() => Home());
-//       } else {
-//         print('User Session Response is empty');
-//         CommonUtils.showErrorToast(context, 'You have no access');
-//       }
-//     } else if (response.statusCode == 401) {
-//       print(
-//           'Create User Session Error: ${response.statusCode}: ${response.body}');
-//       CommonUtils.showErrorToast(context, 'You have no access');
-//     } else {
-//       CommonUtils.showErrorToast(context, '');
-//     }
-//   }
-
-//   void fetchUsers() async {
-//     setState(() {
-//       _isLoading = true;
-//     });
-//     if (!emailController.text.isEmpty && !passwordController.text.isEmpty) {
-//       try {
-//         final response = await BaseClient().get(
-//             '/User/ValidateUserLogin?email=${emailController.text}&password=${passwordController.text}');
-
-//         if (response.statusCode == 200) {
-//           _validateUserLogin = int.tryParse(response.body) ?? 0;
-
-//           if (_validateUserLogin > 0) {
-//             final response2 = await BaseClient()
-//                 .get('/User/GetUser?userid=${_validateUserLogin}');
-
-//             final body = jsonDecode(response2.body);
-//             String username = body['name'];
-
-//             if (body != null) {
-//               setState(() {
-//                 _username = username.isNotEmpty ? username : "";
-//                 _userID = _validateUserLogin;
-//               });
-
-//               int noOfCompany = await getCompanyList();
-//               if (noOfCompany == 1) {
-//                 skipCompanySelection();
-//               } else {
-//                 Navigator.push(
-//                   context,
-//                   MaterialPageRoute(
-//                     builder: (context) => LoginCompany(
-//                       email: emailController.text,
-//                       password: passwordController.text,
-//                       isRemember: _valueRememberMe,
-//                       userID: _userID,
-//                       username: _username,
-//                     ),
-//                   ),
-//                 );
-//               }
-//             } else {
-//               CommonUtils.showErrorToast(context, '');
-//             }
-//           }
-//         } else {
-//           print('Log In Error: ${response.statusCode}');
-//           CommonUtils.showErrorToast(context, 'Invalid email or password');
-//           passwordController.clear();
-//         }
-//       } catch (e) {
-//         print('Login exception: ${e}');
-//         CommonUtils.showErrorToast(context, '');
-//       }
-//     } else if (emailController.text.isEmpty) {
-//       CommonUtils.showErrorToast(context, 'Please enter your email address');
-//     } else if (passwordController.text.isEmpty) {
-//       CommonUtils.showErrorToast(context, 'Please enter your password');
-//     }
-//     setState(() {
-//       _isLoading = false;
-//     });
-//   }
-
-//   Future<int> getCompanyList() async {
-//     try {
-//       final response = await BaseClient()
-//           .get('/User/GetCompanySelectionList?userid=${_userID}');
-
-//       List<UserCompanyLoginSelectionDto> _companyList =
-//           UserCompanyLoginSelectionDto.userFromJson(response.body);
-
-//       setState(() {
-//         companyList = _companyList;
-//       });
-//     } catch (e) {
-//       print('Company Selection Exception: ${e}');
-//       CommonUtils.showErrorToast(context, '');
-//     }
-
-//     return companyList.length;
-//   }
-
-//   void skipCompanySelection() async {
-//     setState(() {
-//       _company = companyList[0];
-//       _userMappingID = _company.userMappingID;
-//       _companyID = _company.companyID!;
-//     });
-
-//     if (_company.companyID != null) {
-//       await storeTokenAndData();
-//     }
-//   }
-
-//   //Force app update
-//   void showUpdateDialog() {
-//     Get.defaultDialog(
-//       backgroundColor: Colors.white,
-//       barrierDismissible: false,
-//       title: "App Update Required",
-//       titleStyle: TextStyle(
-//         fontSize: 20,
-//         fontWeight: FontWeight.w600,
-//         color: GlobalColors.mainColor,
-//       ),
-//       titlePadding: EdgeInsets.only(top: 20),
-//       content: Container(
-//         padding: EdgeInsets.all(8.0),
-//         child: Column(
-//           children: [
-//             Center(
-//               child: Text(
-//                 "A new version of the app is available. Please update to continue.",
-//                 textAlign: TextAlign.center,
-//               ),
-//             )
-//           ],
-//         ),
-//       ),
-//       confirm: TextButton(
-//         onPressed: () async {
-//           // Get.back();
-//           // Redirect to the Play Store or App Store
-//           // _launchStore();
-//           if (Platform.isAndroid) {
-//             Get.back();
-//             exit(0);
-//           } else if (Platform.isIOS) {
-//             // iOS: Do nothing or show a blocking UI
-//           }
-//         },
-//         style: TextButton.styleFrom(
-//           backgroundColor: GlobalColors.mainColor,
-//           padding: EdgeInsets.symmetric(horizontal: 15),
-//           shape: RoundedRectangleBorder(
-//             borderRadius: BorderRadius.circular(20),
-//             side: BorderSide(color: GlobalColors.mainColor),
-//           ),
-//         ),
-//         child: Text(
-//           "Update Now",
-//           style: TextStyle(color: Colors.white),
-//         ),
-//       ),
-//     );
-//   }
-
-//   //Update Available
-//   void showUpdateDialog2() {
-//     Get.defaultDialog(
-//       backgroundColor: Colors.white,
-//       barrierDismissible: false,
-//       title: "New Update Available",
-//       titleStyle: TextStyle(
-//         fontSize: 20,
-//         fontWeight: FontWeight.w600,
-//         color: GlobalColors.mainColor,
-//       ),
-//       titlePadding: EdgeInsets.only(top: 20),
-//       content: Container(
-//         padding: EdgeInsets.all(8.0),
-//         child: Column(
-//           children: [
-//             Center(
-//               child: Text(
-//                 "A new version of the app is available.",
-//                 textAlign: TextAlign.center,
-//               ),
-//             )
-//           ],
-//         ),
-//       ),
-//       confirm: TextButton(
-//         onPressed: () async {
-//           Get.back();
-//         },
-//         style: TextButton.styleFrom(
-//           backgroundColor: GlobalColors.mainColor,
-//           padding: EdgeInsets.symmetric(horizontal: 15),
-//           shape: RoundedRectangleBorder(
-//             borderRadius: BorderRadius.circular(20),
-//             side: BorderSide(color: GlobalColors.mainColor),
-//           ),
-//         ),
-//         child: Text(
-//           "OK",
-//           style: TextStyle(color: Colors.white),
-//         ),
-//       ),
-//     );
-//   }
-
-//   Future<void> _launchStore() async {
-//     String url;
-
-//     if (Platform.isAndroid) {
-//       // Play Store URL for Android
-//       url =
-//           'https://play.google.com/store/apps/details?id=com.presoft.cubehous';
-//     } else if (Platform.isIOS) {
-//       // App Store URL for iOS
-//       url = 'https://apps.apple.com/us/app/cubehous';
-//     } else {
-//       // Optionally handle other platforms or show an error
-//       url = '';
-//     }
-
-//     if (url.isNotEmpty) {
-//       if (await canLaunch(url)) {
-//         await launch(url);
-//       }
-//       // else {
-//       //   throw 'Could not open the store.';
-//       // }
-//     }
-//   }
-// }
-
-// class DrawClip extends CustomClipper<Path> {
-//   double move = 0;
-//   double slice = math.pi;
-//   DrawClip(this.move);
-
-//   @override
-//   Path getClip(Size size) {
-//     Path path = Path();
-//     path.lineTo(0, size.height * 0.8);
-//     double xCenter =
-//         size.width * 0.5 + (size.width * 0.8 + 1) * math.sin(move * slice);
-//     double yCenter = size.height * 0.8 + 69 * math.cos(move * slice);
-//     path.quadraticBezierTo(xCenter, yCenter, size.width, size.height * 0.8);
-
-//     path.lineTo(size.width, 0);
-//     return path;
-//   }
-
-//   @override
-//   bool shouldReclip(CustomClipper<Path> oldClipper) {
-//     return true;
-//   }
-// }
-
-// // 1. Check internet connection
-// // 2. Check version
-// // 3. checkLogin() [If true]
-// // 3.1 Check device storage details : getToken()
-// // - To get save userid, username, email, user credential, companied, remember, userMappingID, company.
-// // 3.2 callAPI: User/ValidateMobileRemember
-// // 3.3 storeTokenAndData()
-// // 3.3.1 callAPI: User/CreateUserSession
-// // 3.3.2 callAPI: User/UpdateMobileRemember
-// // 3.3.3 Login to Home Page
-// // 4. [If false]
-// // 4.1 Wait user key in email and password,4.2 fetchUsers()
-// // 4.2.1 callAPI: User/ValidateUserLogin
-// // 4.2.2 callAPI: User/GetUser
-// // 4.2.3 Check company List
-// // 4.2.4 If only one, call storeTokenAndData() and direct to one page
-// // 4.2.4 Else direct to company selection page
-// //
-// // Company Selection
-// // 5. getCompanyList()
-// // 5.1 call API: User/GetCompanySelectionList
-// // 5.2 Once company selected, will set nUserMappingID, company, selectedCompanyID
-// // 5.3 storeTokenAndData()
+  @override
+  bool shouldReclip(_WaveClipper old) => old.move != move;
+}
