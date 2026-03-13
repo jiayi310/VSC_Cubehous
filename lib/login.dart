@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'api/base_client.dart';
+import 'common/dots_loading.dart';
 import 'common/session_manager.dart';
 import 'login_company.dart';
 import 'models/company_selection.dart';
@@ -148,7 +149,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
               Container(
                 color: Colors.black45,
                 child: const Center(
-                  child: CircularProgressIndicator(color: Colors.white),
+                  child: DotsLoading(color: Colors.white),
                 ),
               ),
           ],
@@ -325,6 +326,24 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
       if (!mounted) return;
 
+      // Use previously selected company if still available (skip selection page)
+      final savedUserMappingID = await SessionManager.getUserMappingID();
+      if (savedUserMappingID > 0) {
+        final savedCompany = companies.cast<CompanySelection?>().firstWhere(
+          (c) => c!.userMappingID == savedUserMappingID,
+          orElse: () => null,
+        );
+        if (savedCompany != null && mounted) {
+          await _createSession(
+            company: savedCompany,
+            userID: userID,
+            username: username,
+            profileImage: profileImage,
+          );
+          return;
+        }
+      }
+
       if (companies.length == 1) {
         await _createSession(
           company: companies.first,
@@ -333,6 +352,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           profileImage: profileImage,
         );
       } else {
+        if (!mounted) return;
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => LoginCompanyPage(

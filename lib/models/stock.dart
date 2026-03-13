@@ -1,6 +1,7 @@
 import 'Pagination.dart';
 
 class Stock {
+  final int stockID;
   final String stockCode;
   final String description;
   final String desc2;
@@ -15,6 +16,7 @@ class Stock {
   final String? image; // base64 string from API
 
   const Stock({
+    this.stockID = 0,
     required this.stockCode,
     required this.description,
     this.desc2 = '',
@@ -30,6 +32,7 @@ class Stock {
   });
 
   factory Stock.fromJson(Map<String, dynamic> json) => Stock(
+        stockID: (json['stockID'] as int?) ?? 0,
         stockCode: (json['stockCode'] as String?) ?? '',
         description: (json['description'] as String?) ?? '',
         desc2: (json['desc2'] as String?) ?? '',

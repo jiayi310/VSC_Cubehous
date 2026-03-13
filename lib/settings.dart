@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'common/dots_loading.dart';
 import 'common/my_color.dart';
 import 'common/session_manager.dart';
 
@@ -145,7 +146,7 @@ class _SettingsPageState extends State<SettingsPage> {
         centerTitle: true,
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: DotsLoading())
           : ListView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
               children: [

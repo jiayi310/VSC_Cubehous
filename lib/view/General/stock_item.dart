@@ -1,10 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../../api/api_endpoints.dart';
 import '../../api/base_client.dart';
+import '../../common/dots_loading.dart';
 import '../../common/my_color.dart';
 import '../../common/session_manager.dart';
 import '../../models/stock.dart';
+import '../../models/stock_filter.dart';
+import 'stock_detail.dart';
 
 // ─────────────────────────────────────────────
 // Sort options
@@ -19,8 +23,7 @@ const _sortOptions = [
   ('Has Batch', 'HasBatch'),
   ('Group', 'StockGroupID'),
   ('Type', 'StockTypeID'),
-  ('Category', 'StockCategoryID'),
-  ('Is Active', 'IsActive'),
+  ('Category', 'StockCategoryID')
 ];
 
 // ─────────────────────────────────────────────
@@ -62,12 +65,18 @@ class _StockItemPageState extends State<StockItemPage> {
   bool _sortAsc = true;
   double? _minPrice;
   double? _maxPrice;
+  List<int> _selectedGroupIDs = [];
+  List<int> _selectedTypeIDs = [];
+  List<int> _selectedCategoryIDs = [];
 
   // Active filter count badge
   int get _activeFilters =>
       (_minPrice != null ? 1 : 0) +
       (_maxPrice != null ? 1 : 0) +
-      (_sortBy != 'StockCode' ? 1 : 0);
+      (_sortBy != 'StockCode' ? 1 : 0) +
+      (_selectedGroupIDs.isNotEmpty ? 1 : 0) +
+      (_selectedTypeIDs.isNotEmpty ? 1 : 0) +
+      (_selectedCategoryIDs.isNotEmpty ? 1 : 0);
 
   final _scrollController = ScrollController();
   final _priceFormatter = NumberFormat('#,##0.00');
@@ -115,13 +124,17 @@ class _StockItemPageState extends State<StockItemPage> {
         'pageSize': _itemsPerPage,
         'sortBy': _sortBy,
         'isSortByAscending': _sortAsc,
-        'searchTerm': _searchQuery ?? null,
+        'searchTerm': _searchQuery,
         'filterMinPrice': _minPrice ?? 0,
         'filterMaxPrice': _maxPrice ?? 0,
+        'filterGroupIDs': _selectedGroupIDs,
+        'filterTypeIDs': _selectedTypeIDs,
+        'filterCategoryIDs': _selectedCategoryIDs,
+        'isActiveOnly': true,
       };
 
       final response = await BaseClient.post(
-        '/Stock/GetStockListByCompanyId',
+        ApiEndpoints.getStockList,
         body: body,
       ) as Map<String, dynamic>;
 
@@ -168,20 +181,28 @@ class _StockItemPageState extends State<StockItemPage> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      backgroundColor: Colors.transparent,
       builder: (_) => _FilterSheet(
         sortBy: _sortBy,
         sortAsc: _sortAsc,
         minPrice: _minPrice,
         maxPrice: _maxPrice,
-        onApply: (sortBy, sortAsc, minPrice, maxPrice) {
+        selectedGroupIDs: _selectedGroupIDs,
+        selectedTypeIDs: _selectedTypeIDs,
+        selectedCategoryIDs: _selectedCategoryIDs,
+        apiKey: _apiKey,
+        companyGUID: _companyGUID,
+        userID: _userID,
+        userSessionID: _userSessionID,
+        onApply: (sortBy, sortAsc, minPrice, maxPrice, groupIDs, typeIDs, categoryIDs) {
           setState(() {
             _sortBy = sortBy;
             _sortAsc = sortAsc;
             _minPrice = minPrice;
             _maxPrice = maxPrice;
+            _selectedGroupIDs = groupIDs;
+            _selectedTypeIDs = typeIDs;
+            _selectedCategoryIDs = categoryIDs;
           });
           _fetch(page: 0);
         },
@@ -191,6 +212,9 @@ class _StockItemPageState extends State<StockItemPage> {
             _sortAsc = true;
             _minPrice = null;
             _maxPrice = null;
+            _selectedGroupIDs = [];
+            _selectedTypeIDs = [];
+            _selectedCategoryIDs = [];
           });
           _fetch(page: 0);
         },
@@ -207,66 +231,79 @@ class _StockItemPageState extends State<StockItemPage> {
         title: const Text('Stock Item',
             style: TextStyle(fontWeight: FontWeight.w600)),
         centerTitle: true,
-        actions: [
-          // Filter
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.tune_outlined),
-                tooltip: 'Filter',
-                onPressed: _showFilter,
-              ),
-              if (_activeFilters > 0)
-                Positioned(
-                  top: 8,
-                  right: 8,
-                  child: Container(
-                    width: 16,
-                    height: 16,
-                    decoration: const BoxDecoration(
-                      color: Mycolor.secondary,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Center(
-                      child: Text(
-                        '$_activeFilters',
-                        style: const TextStyle(
-                            fontSize: 9,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(56),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-            child: TextField(
-              controller: _searchController,
-              textInputAction: TextInputAction.search,
-              onSubmitted: _onSearchSubmit,
-              decoration: InputDecoration(
-                hintText: 'Search...',
-                prefixIcon: const Icon(Icons.search, size: 20),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, size: 18),
-                        onPressed: _clearSearch,
-                      )
-                    : null,
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: _onSearchSubmit,
+                    decoration: InputDecoration(
+                      hintText: 'Search...',
+                      prefixIcon: const Icon(Icons.search, size: 20),
+                      suffixIcon: _searchController.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, size: 18),
+                              onPressed: _clearSearch,
+                            )
+                          : null,
+                      isDense: true,
+                      contentPadding:
+                          const EdgeInsets.symmetric(vertical: 10),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      filled: true,
+                    ),
+                  ),
                 ),
-                filled: true,
-              ),
+                const SizedBox(width: 8),
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Material(
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(12),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: _showFilter,
+                        child: const SizedBox(
+                          width: 44,
+                          height: 44,
+                          child: Icon(Icons.tune_outlined, size: 20),
+                        ),
+                      ),
+                    ),
+                    if (_activeFilters > 0)
+                      Positioned(
+                        top: 0,
+                        right: 0,
+                        child: Container(
+                          width: 14,
+                          height: 14,
+                          decoration: const BoxDecoration(
+                            color: Mycolor.secondary,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Center(
+                            child: Text(
+                              '$_activeFilters',
+                              style: const TextStyle(
+                                  fontSize: 8,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
             ),
           ),
         ),
@@ -277,7 +314,7 @@ class _StockItemPageState extends State<StockItemPage> {
 
   Widget _buildBody() {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: DotsLoading());
     }
     if (_error != null) {
       return _ErrorState(message: _error!, onRetry: () => _fetch(page: 0));
@@ -342,7 +379,7 @@ class _StockItemPageState extends State<StockItemPage> {
         crossAxisCount: MediaQuery.of(context).size.width >= 600 ? 3 : 2,
         crossAxisSpacing: 10,
         mainAxisSpacing: 10,
-        mainAxisExtent: 210,
+        mainAxisExtent: 208,
       ),
       itemCount: _stocks.length,
       itemBuilder: (_, i) => _GridCard(
@@ -389,7 +426,10 @@ class _GridCard extends StatelessWidget {
       elevation: 1,
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
-        onTap: () {}, // TODO: detail page
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => StockDetailPage(stock: stock)),
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -456,21 +496,6 @@ class _GridCard extends StatelessWidget {
                       ),
                     ],
                   ),
-                  if (!stock.isActive) ...[
-                    const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.red.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: const Text(
-                        'Inactive',
-                        style: TextStyle(fontSize: 9, color: Colors.red),
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -502,7 +527,10 @@ class _ListCard extends StatelessWidget {
       elevation: 1,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: () {}, // TODO: detail page
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => StockDetailPage(stock: stock)),
+        ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           child: Row(
@@ -521,22 +549,6 @@ class _ListCard extends StatelessWidget {
                             color: primary,
                           ),
                         ),
-                        if (!stock.isActive) ...[
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 5, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: Colors.red.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: const Text(
-                              'Inactive',
-                              style:
-                                  TextStyle(fontSize: 9, color: Colors.red),
-                            ),
-                          ),
-                        ],
                       ],
                     ),
                     const SizedBox(height: 2),
@@ -779,11 +791,7 @@ class _PaginationBar extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           if (isLoading)
-            const SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
+            const DotsLoading(dotSize: 6)
           else
             Text(
               'Page ${currentPage + 1} of $totalPages',
@@ -816,7 +824,22 @@ class _FilterSheet extends StatefulWidget {
   final bool sortAsc;
   final double? minPrice;
   final double? maxPrice;
-  final void Function(String sortBy, bool sortAsc, double? minPrice, double? maxPrice) onApply;
+  final List<int> selectedGroupIDs;
+  final List<int> selectedTypeIDs;
+  final List<int> selectedCategoryIDs;
+  final String apiKey;
+  final String companyGUID;
+  final int userID;
+  final String userSessionID;
+  final void Function(
+    String sortBy,
+    bool sortAsc,
+    double? minPrice,
+    double? maxPrice,
+    List<int> groupIDs,
+    List<int> typeIDs,
+    List<int> categoryIDs,
+  ) onApply;
   final VoidCallback onReset;
 
   const _FilterSheet({
@@ -824,6 +847,13 @@ class _FilterSheet extends StatefulWidget {
     required this.sortAsc,
     required this.minPrice,
     required this.maxPrice,
+    required this.selectedGroupIDs,
+    required this.selectedTypeIDs,
+    required this.selectedCategoryIDs,
+    required this.apiKey,
+    required this.companyGUID,
+    required this.userID,
+    required this.userSessionID,
     required this.onApply,
     required this.onReset,
   });
@@ -835,44 +865,105 @@ class _FilterSheet extends StatefulWidget {
 class _FilterSheetState extends State<_FilterSheet> {
   late String _sortBy;
   late bool _sortAsc;
-  late TextEditingController _minCtrl;
-  late TextEditingController _maxCtrl;
+  late Set<int> _selectedGroupIDs;
+  late Set<int> _selectedTypeIDs;
+  late Set<int> _selectedCategoryIDs;
+
+  List<StockGroup> _groups = [];
+  List<StockType> _types = [];
+  List<StockCategory> _categories = [];
+
+  double _absoluteMaxPrice = 0;
+  double _filterMinPrice = 0;
+  double _filterMaxPrice = 0;
+  bool _isLoading = true;
+  bool _loadError = false;
+
+  final _fmt = NumberFormat('#,##0.00');
 
   @override
   void initState() {
     super.initState();
     _sortBy = widget.sortBy;
     _sortAsc = widget.sortAsc;
-    _minCtrl = TextEditingController(
-        text: widget.minPrice != null ? widget.minPrice!.toStringAsFixed(2) : '');
-    _maxCtrl = TextEditingController(
-        text: widget.maxPrice != null ? widget.maxPrice!.toStringAsFixed(2) : '');
+    _selectedGroupIDs = Set.from(widget.selectedGroupIDs);
+    _selectedTypeIDs = Set.from(widget.selectedTypeIDs);
+    _selectedCategoryIDs = Set.from(widget.selectedCategoryIDs);
+    _filterMinPrice = widget.minPrice ?? 0;
+    _filterMaxPrice = widget.maxPrice ?? 0;
+    _loadOptions();
   }
 
-  @override
-  void dispose() {
-    _minCtrl.dispose();
-    _maxCtrl.dispose();
-    super.dispose();
+  Future<void> _loadOptions() async {
+    setState(() { _isLoading = true; _loadError = false; });
+    try {
+      final body = {
+        'apiKey': widget.apiKey,
+        'companyGUID': widget.companyGUID,
+        'userID': widget.userID.toString(),
+        'userSessionID': widget.userSessionID,
+      };
+
+      final results = await Future.wait([
+        BaseClient.post(ApiEndpoints.getStockGroupList, body: body),
+        BaseClient.post(ApiEndpoints.getStockTypeList, body: body),
+        BaseClient.post(ApiEndpoints.getStockCategoryList, body: body),
+        BaseClient.post(ApiEndpoints.getStockMaxPrice, body: body),
+      ]);
+
+      if (!mounted) return;
+
+      final maxPrice = double.tryParse(results[3].toString()) ?? 0;
+      setState(() {
+        _groups = (results[0] as List<dynamic>)
+            .map((e) => StockGroup.fromJson(e as Map<String, dynamic>))
+            .toList();
+        _types = (results[1] as List<dynamic>)
+            .map((e) => StockType.fromJson(e as Map<String, dynamic>))
+            .toList();
+        _categories = (results[2] as List<dynamic>)
+            .map((e) => StockCategory.fromJson(e as Map<String, dynamic>))
+            .toList();
+        _absoluteMaxPrice = maxPrice;
+        if (_filterMaxPrice == 0) _filterMaxPrice = maxPrice;
+        _isLoading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() { _isLoading = false; _loadError = true; });
+    }
+  }
+
+  void _apply() {
+    final minP = _filterMinPrice > 0 ? _filterMinPrice : null;
+    final maxP = (_absoluteMaxPrice > 0 && _filterMaxPrice < _absoluteMaxPrice)
+        ? _filterMaxPrice
+        : null;
+    Navigator.pop(context);
+    widget.onApply(
+      _sortBy, _sortAsc, minP, maxP,
+      _selectedGroupIDs.toList(),
+      _selectedTypeIDs.toList(),
+      _selectedCategoryIDs.toList(),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
+    final surface = Theme.of(context).colorScheme.surface;
 
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-      ),
-      child: SingleChildScrollView(
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (_, scrollCtrl) => Material(
+        color: surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
           children: [
-            // Handle
+            // ── Handle + header ──────────────────────
+            const SizedBox(height: 12),
             Center(
               child: Container(
                 width: 40,
@@ -883,145 +974,234 @@ class _FilterSheetState extends State<_FilterSheet> {
                 ),
               ),
             ),
-            const SizedBox(height: 16),
-
-            // Title row
-            Row(
-              children: [
-                const Text('Filter & Sort',
-                    style:
-                        TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                const Spacer(),
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    widget.onReset();
-                  },
-                  child: const Text('Reset'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            // Sort By
-            Text('Sort By',
-                style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: primary)),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              value: _sortBy,
-              decoration: InputDecoration(
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10)),
-                isDense: true,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 10, 8, 0),
+              child: Row(
+                children: [
+                  const Text('Filter & Sort',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      widget.onReset();
+                    },
+                    child: const Text('Reset'),
+                  ),
+                ],
               ),
-              items: _sortOptions
-                  .map((o) =>
-                      DropdownMenuItem(value: o.$2, child: Text(o.$1)))
-                  .toList(),
-              onChanged: (v) => setState(() => _sortBy = v!),
             ),
-            const SizedBox(height: 12),
+            const Divider(height: 1),
 
-            // Sort direction
-            Text('Sort Direction',
-                style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: primary)),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: _DirectionChip(
-                    label: 'Ascending',
-                    icon: Icons.arrow_upward_rounded,
-                    selected: _sortAsc,
-                    onTap: () => setState(() => _sortAsc = true),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _DirectionChip(
-                    label: 'Descending',
-                    icon: Icons.arrow_downward_rounded,
-                    selected: !_sortAsc,
-                    onTap: () => setState(() => _sortAsc = false),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
+            // ── Scrollable content ───────────────────
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: DotsLoading())
+                  : _loadError
+                      ? Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.cloud_off_outlined,
+                                  size: 40,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurface
+                                      .withValues(alpha: 0.3)),
+                              const SizedBox(height: 8),
+                              const Text('Failed to load filter options'),
+                              const SizedBox(height: 12),
+                              FilledButton(
+                                onPressed: _loadOptions,
+                                child: const Text('Retry'),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView(
+                          controller: scrollCtrl,
+                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                          children: [
+                            // ── Sort By ──────────────
+                            _label('Sort By', primary),
+                            const SizedBox(height: 8),
+                            DropdownButtonFormField<String>(
+                              value: _sortBy,
+                              decoration: InputDecoration(
+                                border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10)),
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 12),
+                              ),
+                              items: _sortOptions
+                                  .map((o) => DropdownMenuItem(
+                                      value: o.$2, child: Text(o.$1)))
+                                  .toList(),
+                              onChanged: (v) => setState(() => _sortBy = v!),
+                            ),
+                            const SizedBox(height: 16),
 
-            // Price range
-            Text('Price Range',
-                style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: primary)),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: _minCtrl,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    decoration: InputDecoration(
-                      labelText: 'Min',
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                      isDense: true,
-                    ),
-                  ),
-                ),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 10),
-                  child: Text('—'),
-                ),
-                Expanded(
-                  child: TextFormField(
-                    controller: _maxCtrl,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    decoration: InputDecoration(
-                      labelText: 'Max',
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                      isDense: true,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
+                            // ── Sort Direction ────────
+                            _label('Sort Direction', primary),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _DirectionChip(
+                                    label: 'Ascending',
+                                    icon: Icons.arrow_upward_rounded,
+                                    selected: _sortAsc,
+                                    onTap: () => setState(() => _sortAsc = true),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: _DirectionChip(
+                                    label: 'Descending',
+                                    icon: Icons.arrow_downward_rounded,
+                                    selected: !_sortAsc,
+                                    onTap: () => setState(() => _sortAsc = false),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 20),
 
-            // Apply button
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-                onPressed: () {
-                  final minP = double.tryParse(_minCtrl.text);
-                  final maxP = double.tryParse(_maxCtrl.text);
-                  Navigator.pop(context);
-                  widget.onApply(_sortBy, _sortAsc, minP, maxP);
-                },
-                child: const Text('Apply',
-                    style: TextStyle(fontWeight: FontWeight.w600)),
-              ),
+                            // ── Price Range ───────────
+                            if (_absoluteMaxPrice > 0) ...[
+                              Row(
+                                children: [
+                                  _label('Price Range', primary),
+                                  const Spacer(),
+                                  Text(
+                                    '${_fmt.format(_filterMinPrice)}  –  ${_fmt.format(_filterMaxPrice)}',
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurface
+                                            .withValues(alpha: 0.6)),
+                                  ),
+                                ],
+                              ),
+                              RangeSlider(
+                                values: RangeValues(_filterMinPrice, _filterMaxPrice),
+                                min: 0,
+                                max: _absoluteMaxPrice,
+                                labels: RangeLabels(
+                                  _fmt.format(_filterMinPrice),
+                                  _fmt.format(_filterMaxPrice),
+                                ),
+                                onChanged: (v) => setState(() {
+                                  _filterMinPrice = v.start;
+                                  _filterMaxPrice = v.end;
+                                }),
+                              ),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text('0', style: _hintStyle(context)),
+                                  Text(_fmt.format(_absoluteMaxPrice),
+                                      style: _hintStyle(context)),
+                                ],
+                              ),
+                              const SizedBox(height: 20),
+                            ],
+
+                            // ── Item Group ────────────
+                            if (_groups.isNotEmpty) ...[
+                              _label('Item Group', primary),
+                              const SizedBox(height: 8),
+                              _buildChips(
+                                items: _groups
+                                    .map((g) => (id: g.id, label: g.description))
+                                    .toList(),
+                                selected: _selectedGroupIDs,
+                              ),
+                              const SizedBox(height: 20),
+                            ],
+
+                            // ── Item Type ─────────────
+                            if (_types.isNotEmpty) ...[
+                              _label('Item Type', primary),
+                              const SizedBox(height: 8),
+                              _buildChips(
+                                items: _types
+                                    .map((t) => (id: t.id, label: t.description))
+                                    .toList(),
+                                selected: _selectedTypeIDs,
+                              ),
+                              const SizedBox(height: 20),
+                            ],
+
+                            // ── Item Category ─────────
+                            if (_categories.isNotEmpty) ...[
+                              _label('Item Category', primary),
+                              const SizedBox(height: 8),
+                              _buildChips(
+                                items: _categories
+                                    .map((c) => (id: c.id, label: c.description))
+                                    .toList(),
+                                selected: _selectedCategoryIDs,
+                              ),
+                              const SizedBox(height: 24),
+                            ],
+
+                            // ── Apply ─────────────────
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton(
+                                style: FilledButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(48),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12)),
+                                ),
+                                onPressed: _apply,
+                                child: const Text('Apply',
+                                    style:
+                                        TextStyle(fontWeight: FontWeight.w600)),
+                              ),
+                            ),
+                          ],
+                        ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _label(String text, Color color) => Text(
+        text,
+        style: TextStyle(
+            fontSize: 13, fontWeight: FontWeight.w600, color: color),
+      );
+
+  TextStyle _hintStyle(BuildContext context) => TextStyle(
+        fontSize: 11,
+        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
+      );
+
+  Widget _buildChips({
+    required List<({int id, String label})> items,
+    required Set<int> selected,
+  }) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 6,
+      children: items.map((item) {
+        final isSel = selected.contains(item.id);
+        return FilterChip(
+          label: Text(item.label, style: const TextStyle(fontSize: 12)),
+          selected: isSel,
+          onSelected: (v) => setState(() {
+            if (v) { selected.add(item.id); }
+            else { selected.remove(item.id); }
+          }),
+          visualDensity: VisualDensity.compact,
+        );
+      }).toList(),
     );
   }
 }

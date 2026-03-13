@@ -161,11 +161,8 @@ class SessionManager {
     final rememberMe = await getRememberMe();
     final savedEmail = await getSavedEmail();
     final savedPassword = await getSavedPassword();
-    final userMappingID = await getUserMappingID();
     final userID = await getUserID();
     final username = await getUsername();
-    final companyName = await getCompanyName();
-    final companyID = await getCompanyID();
     final profileImage = await getProfileImage();
 
     await _storage.deleteAll();
@@ -175,11 +172,8 @@ class SessionManager {
         saveRememberMe(true),
         saveSavedEmail(savedEmail),
         saveSavedPassword(savedPassword),
-        _storage.write(key: 'userMappingID', value: userMappingID.toString()),
         _storage.write(key: 'userid', value: userID.toString()),
         _storage.write(key: 'username', value: username),
-        _storage.write(key: 'companyName', value: companyName),
-        _storage.write(key: 'companyid', value: companyID.toString()),
         _storage.write(key: 'profileImage', value: profileImage),
       ]);
     }

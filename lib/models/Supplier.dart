@@ -1,14 +1,16 @@
+import 'Pagination.dart';
+
 class SupplierType {
   int supplierTypeID;
   String? description;
   String? desc2;
-  bool isActive;
+  bool isDisabled;
 
   SupplierType({
     required this.supplierTypeID,
     this.description,
     this.desc2,
-    required this.isActive,
+    required this.isDisabled,
   });
 
   factory SupplierType.fromJson(Map<String, dynamic> json) {
@@ -16,7 +18,7 @@ class SupplierType {
       supplierTypeID: json['supplierTypeID'] as int,
       description: json['description'] as String?,
       desc2: json['desc2'] as String?,
-      isActive: json['isActive'] as bool,
+      isDisabled: json['isDisabled'] as bool,
     );
   }
 
@@ -25,7 +27,7 @@ class SupplierType {
       'supplierTypeID': supplierTypeID,
       'description': description,
       'desc2': desc2,
-      'isActive': isActive,
+      'isDisabled': isDisabled,
     };
   }
 }
@@ -79,7 +81,7 @@ class Supplier {
 
   factory Supplier.fromJson(Map<String, dynamic> json) {
     return Supplier(
-      supplierID: json['supplierID'] as int,
+      supplierID: (json['supplierID'] as int?) ?? 0,
       supplierCode: json['supplierCode'] as String?,
       name: json['name'] as String?,
       name2: json['name2'] as String?,
@@ -94,12 +96,14 @@ class Supplier {
       fax1: json['fax1'] as String?,
       fax2: json['fax2'] as String?,
       email: json['email'] as String?,
-      lastModifiedDateTime: json['lastModifiedDateTime'] as String,
-      lastModifiedUserID: json['lastModifiedUserID'] as int,
-      createdDateTime: json['createdDateTime'] as String,
-      createdUserID: json['createdUserID'] as int,
-      supplierTypeID: json['supplierTypeID'] as int,
-      supplierType: json['supplierType'] != null ? SupplierType.fromJson(json['supplierType']) : null,
+      lastModifiedDateTime: (json['lastModifiedDateTime'] as String?) ?? '',
+      lastModifiedUserID: (json['lastModifiedUserID'] as int?) ?? 0,
+      createdDateTime: (json['createdDateTime'] as String?) ?? '',
+      createdUserID: (json['createdUserID'] as int?) ?? 0,
+      supplierTypeID: (json['supplierTypeID'] as int?) ?? 0,
+      supplierType: json['supplierType'] is Map<String, dynamic>
+          ? SupplierType.fromJson(json['supplierType'] as Map<String, dynamic>)
+          : null,
     );
   }
 
@@ -128,4 +132,22 @@ class Supplier {
       'supplierType': supplierType?.toJson(),
     };
   }
+}
+
+class SupplierResponse {
+  final List<Supplier>? data;
+  final Pagination? pagination;
+
+  const SupplierResponse({this.data, this.pagination});
+
+  factory SupplierResponse.fromJson(Map<String, dynamic> json) =>
+      SupplierResponse(
+        data: (json['data'] as List<dynamic>?)
+            ?.map((e) => Supplier.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        pagination: json['paginationOpt'] != null
+            ? Pagination.fromJson(
+                json['paginationOpt'] as Map<String, dynamic>)
+            : null,
+      );
 }

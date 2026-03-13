@@ -1,4 +1,10 @@
 import 'dart:convert';
+import 'package:cubehous/view/General/Customer/customer_list.dart';
+import 'package:cubehous/view/General/Location/location_list.dart';
+import 'package:cubehous/view/General/Supplier/supplier_list.dart';
+import 'package:cubehous/view/Sales/collection_list.dart';
+import 'package:cubehous/view/Sales/quotation_list.dart';
+import 'package:cubehous/view/Sales/sales_list.dart';
 import 'package:flutter/material.dart';
 import 'about_us.dart';
 import 'settings.dart';
@@ -91,7 +97,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
               child: TabBarView(
                 controller: _tabController,
                 children: [
-                  _SalesTab(columnCount: _columnCount, onModuleTap: _comingSoon),
+                  _SalesTab(columnCount: _columnCount, onModuleTap: _onModuleTap),
                   _WarehouseTab(columnCount: _columnCount, onModuleTap: _comingSoon),
                   _GeneralTab(columnCount: _columnCount, onModuleTap: _onModuleTap),
                 ],
@@ -187,6 +193,30 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     if (module == 'Stock Item') {
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const StockItemPage()),
+      );
+    } else if (module == 'Customers') {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const CustomerListPage()),
+      );
+    } else if (module == 'Suppliers') {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const SupplierListPage()),
+      );
+    } else if (module == 'Locations') {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const LocationListPage()),
+      );
+    } else if (module == 'Quotation') {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const QuotationListPage()),
+      );
+    } else if (module == 'Sales Order') {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const SalesListPage()),
+      );
+    } else if (module == 'Collection') {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const CollectionListPage()),
       );
     } else {
       _comingSoon(module);

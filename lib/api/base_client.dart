@@ -115,14 +115,7 @@ class BaseClient {
     };
   }
 
-  // Add auth token to headers if needed
-  static Map<String, String> _getAuthHeaders(String token) {
-    return {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'Authorization': 'Bearer $token',
-    };
-  }
+
 }
 
 // Custom Exception Classes

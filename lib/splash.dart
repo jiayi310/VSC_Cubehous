@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'api/base_client.dart';
+import 'common/dots_loading.dart';
 import 'common/my_color.dart';
 import 'common/network_aware_wrapper.dart';
 import 'common/session_manager.dart';
@@ -370,7 +371,7 @@ class _SplashScreenState extends State<SplashScreen> {
               fit: BoxFit.contain,
             ),
             const SizedBox(height: 20),
-            const CircularProgressIndicator(),
+            const DotsLoading(color: Color(0xFF1E2F4A)),
           ],
         ),
       ),

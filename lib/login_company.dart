@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api/base_client.dart';
+import 'common/dots_loading.dart';
 import 'common/session_manager.dart';
 import 'models/company_selection.dart';
 
@@ -102,7 +103,7 @@ class _LoginCompanyPageState extends State<LoginCompanyPage> {
             Container(
               color: Colors.black45,
               child: const Center(
-                child: CircularProgressIndicator(color: Colors.white),
+                child: DotsLoading(color: Colors.white),
               ),
             ),
         ],
