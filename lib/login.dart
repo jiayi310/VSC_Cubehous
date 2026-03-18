@@ -1,11 +1,13 @@
 import 'dart:math' as math;
+import 'package:cubehous/models/my_user.dart';
+import 'package:cubehous/models/my_user_session.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'api/base_client.dart';
 import 'common/dots_loading.dart';
 import 'common/session_manager.dart';
 import 'login_company.dart';
-import 'models/company_selection.dart';
+import 'models/my_company_selection.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -22,6 +24,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
   bool _rememberMe = false;
   bool _isLoading = false;
   String? _errorMessage;
+  bool _userIsActive = false;
+  String email = '';
 
   @override
   void initState() {
@@ -265,7 +269,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
   }
 
   Future<void> _login() async {
-    final email = _emailController.text.trim();
+    email = _emailController.text.trim();
     final password = _passwordController.text;
 
     if (email.isEmpty) {
@@ -289,15 +293,14 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         '&password=${Uri.encodeComponent(password)}',
       ) as int;
 
-      final userJson = await BaseClient.get('/User/GetUser?userid=$userID')
-          as Map<String, dynamic>;
-      final username = (userJson['name'] as String?) ?? '';
-      final profileImage = (userJson['profileImage'] as String?) ?? '';
+      final raw1 = await BaseClient.get('/User/GetUser?userid=$userID');
+      final myUser = MyUser.fromJson(raw1 as Map<String, dynamic>);
+      final username = myUser.name ?? '';
+      final profileImage = myUser.profileImage ?? '';
+      _userIsActive = myUser.isActive ?? false;
 
-      final raw = await BaseClient.get(
-        '/User/GetCompanySelectionList?userid=$userID',
-      ) as List<dynamic>;
-      final companies = raw
+      final raw2= await BaseClient.get('/User/GetCompanySelectionList?userid=$userID',) as List<dynamic>;
+      final companies = raw2
           .map((e) => CompanySelection.fromJson(e as Map<String, dynamic>))
           .toList();
 
@@ -360,6 +363,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
               userID: userID,
               username: username,
               profileImage: profileImage,
+              userIsActive: _userIsActive,
             ),
           ),
         );
@@ -386,30 +390,44 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       '/User/CreateUserSession?usermappingid=${company.userMappingID}',
     ) as Map<String, dynamic>;
 
-    final session = sessionJson['userSession'] as Map<String, dynamic>?;
+    // Response body (userSession)
+    final userSession = MyUserSession.fromJson(sessionJson['userSession'] as Map<String, dynamic>);
+    final userAccessRights = List<String>.from(sessionJson['userAccessRights'] ?? []);
+    final companyModuleIdList = List<String>.from(sessionJson['companyModuleIdList'] ?? []);
+    //final userProfile = sessionJson['userProfile'] != null
+    //    ? UserProfile.fromJson(sessionJson['userProfile'] as Map<String, dynamic>)
+    //    : null;
 
-    if (sessionJson.isEmpty || session == null || session.isEmpty) {
+    userAccessRights.add('SHOW_COST');
+
+    if (sessionJson.isEmpty) {
       setState(() => _errorMessage = 'You have no access to this company.');
       return;
     }
 
     await SessionManager.saveSession(
+      email: email,
       userID: userID,
       userMappingID: company.userMappingID,
       companyID: company.companyID,
-      defaultLocationID: (session['defaultLocationID'] as int?) ?? 0,
+      userSessionID: userSession.userSessionID ?? '',
+      companyGUID: userSession.companyGUID ?? '',
+      apiKey: userSession.apiKey ?? '',
+      userType: userSession.userType ?? '',
       username: username,
       companyName: company.companyName,
-      userSessionID: (session['userSessionID'] as String?) ?? '',
-      companyGUID: (session['companyGUID'] as String?) ?? '',
-      apiKey: (session['apiKey'] as String?) ?? '',
-      isEnableTax: (session['isEnableTax'] as bool?) ?? false,
-      isAutoBatchNo: (session['isAutoBatchNo'] as bool?) ?? false,
-      batchNoFormat: session['batchNoFormat'] as String?,
-      salesDecimalPoint: (session['salesDecimalPoint'] as int?) ?? 2,
-      purchaseDecimalPoint: (session['purchaseDecimalPoint'] as int?) ?? 2,
-      quantityDecimalPoint: (session['quantityDecimalPoint'] as int?) ?? 2,
-      costDecimalPoint: (session['costDecimalPoint'] as int?) ?? 2,
+      userAccessRight: userAccessRights,
+      companyModuleIdList: companyModuleIdList,
+      salesDecimalPoint: userSession.salesDecimalPoint ?? 2,
+      purchaseDecimalPoint: userSession.purchaseDecimalPoint ?? 2,
+      quantityDecimalPoint: userSession.quantityDecimalPoint ?? 0,
+      costDecimalPoint: userSession.costDecimalPoint ?? 2,
+      isAutoBatchNo: userSession.isAutoBatchNo ?? false,
+      batchNoFormat: userSession.batchNoFormat ?? '',
+      isEnableTax: userSession.isEnableTax ?? false,
+      defaultLocationID: userSession.defaultLocationID ?? 0,
+      defaultSalesAgentID: userSession.defaultSalesAgentID ?? 0,
+      userIsActive: _userIsActive,
     );
 
     if (profileImage.isNotEmpty) {

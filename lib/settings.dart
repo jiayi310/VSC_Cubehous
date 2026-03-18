@@ -18,7 +18,7 @@ class _SettingsPageState extends State<SettingsPage> {
   // App preferences
   String _language = 'en';
   int _itemsPerPage = 20;
-  String _displayMode = 'grid';
+  String _imageMode = 'show';
   bool _loading = true;
 
   // Account defaults (view-only)
@@ -41,7 +41,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final results = await Future.wait([
       SessionManager.getLanguage(),
       SessionManager.getItemsPerPage(),
-      SessionManager.getDisplayMode(),
+      SessionManager.getImageMode(),
       SessionManager.getDefaultLocationID(),
       SessionManager.getIsEnableTax(),
       SessionManager.getIsAutoBatchNo(),
@@ -55,7 +55,7 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() {
       _language = results[0] as String;
       _itemsPerPage = results[1] as int;
-      _displayMode = results[2] as String;
+      _imageMode = results[2] as String;
       _defaultLocationID = results[3] as int;
       _isEnableTax = results[4] as bool;
       _isAutoBatchNo = results[5] as bool;
@@ -73,7 +73,7 @@ class _SettingsPageState extends State<SettingsPage> {
     return map[_language] ?? 'English';
   }
 
-  String get _displayModeLabel => _displayMode == 'grid' ? 'Grid View' : 'List View';
+  String get _imageModeLabel => _imageMode == 'show' ? 'Show Image' : 'No Image';
 
   Future<void> _openLanguage() async {
     final result = await Navigator.of(context).push<String>(
@@ -118,23 +118,23 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _openDisplayMode() async {
+  Future<void> _openImageMode() async {
     final result = await Navigator.of(context).push<String>(
       MaterialPageRoute(
         builder: (_) => _SelectionPage<String>(
-          title: 'Display Mode',
-          icon: Icons.grid_view_outlined,
-          current: _displayMode,
+          title: 'Image Display',
+          icon: Icons.image_outlined,
+          current: _imageMode,
           items: const [
-            _Item('grid', 'Grid View', 'Default'),
-            _Item('list', 'List View', null),
+            _Item('show', 'Show Image', 'Default'),
+            _Item('noShow', 'No Image', null),
           ],
         ),
       ),
     );
-    if (result != null && result != _displayMode) {
-      await SessionManager.saveDisplayMode(result);
-      if (mounted) setState(() => _displayMode = result);
+    if (result != null && result != _imageMode) {
+      await SessionManager.saveImageMode(result);
+      if (mounted) setState(() => _imageMode = result);
     }
   }
 
@@ -170,10 +170,10 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 const SizedBox(height: 1),
                 _SettingsTile(
-                  icon: Icons.grid_view_outlined,
-                  title: 'Display Mode',
-                  value: _displayModeLabel,
-                  onTap: _openDisplayMode,
+                  icon: Icons.image_outlined,
+                  title: 'Image Display',
+                  value: _imageModeLabel,
+                  onTap: _openImageMode,
                 ),
                 const SizedBox(height: 24),
 

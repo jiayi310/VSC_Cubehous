@@ -40,6 +40,9 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
   }
 
   Future<void> _loadCustomer() async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
     setState(() {
       _isLoading = true;
       _error = null;
@@ -217,7 +220,7 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
         : primary;
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 5),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(16),
@@ -225,7 +228,7 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
       child: Row(
         children: [
           CircleAvatar(
-            radius: 30,
+            radius: 35,
             backgroundColor: color.withValues(alpha: 0.15),
             child: Text(
               c.name.isNotEmpty ? c.name[0].toUpperCase() : '?',
@@ -238,20 +241,6 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(c.name,
-                    style: const TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.w700)),
-                if (c.name2.isNotEmpty) ...[
-                  const SizedBox(height: 2),
-                  Text(c.name2,
-                      style: TextStyle(
-                          fontSize: 13,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.55))),
-                ],
-                const SizedBox(height: 6),
                 Row(
                   children: [
                     Container(
@@ -269,26 +258,14 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
                             color: primary),
                       ),
                     ),
-                    if (c.customerType.isNotEmpty) ...[
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: Colors.teal.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          c.customerType,
-                          style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.teal),
-                        ),
-                      ),
-                    ],
+
                   ],
                 ),
+                const SizedBox(height: 6),
+                Text(c.name,
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 6),
               ],
             ),
           ),

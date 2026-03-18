@@ -170,24 +170,103 @@ class StockDetail {
       );
 }
 
-class StockSpecificBalance {
-  final String batchNo;
-  final String storageCode;
-  final String storageName;
+/// One row from GetStockBalance — total qty per location.
+class StockLocationBalance {
+  final int stockBalanceID;
+  final int locationID;
+  final String location;
   final double qty;
 
-  const StockSpecificBalance({
-    required this.batchNo,
-    required this.storageCode,
-    required this.storageName,
+  const StockLocationBalance({
+    required this.stockBalanceID,
+    required this.locationID,
+    required this.location,
     required this.qty,
+  });
+
+  factory StockLocationBalance.fromJson(Map<String, dynamic> json) =>
+      StockLocationBalance(
+        stockBalanceID: (json['stockBalanceID'] as int?) ?? 0,
+        locationID: (json['locationID'] as int?) ?? 0,
+        location: (json['location'] as String?) ?? '',
+        qty: _toDouble(json['qty']),
+      );
+}
+
+/// One row from GetSpecificStockBalance — storage + batch detail.
+class StockSpecificBalance {
+  final double wmsQty;
+  final int? stockBatchID;
+  final String? batchNo;
+  final String? batchExpiryDate;
+  final int locationID;
+  final String location;
+  final int storageID;
+  final String storageCode;
+
+  const StockSpecificBalance({
+    required this.wmsQty,
+    this.stockBatchID,
+    this.batchNo,
+    this.batchExpiryDate,
+    required this.locationID,
+    required this.location,
+    required this.storageID,
+    required this.storageCode,
   });
 
   factory StockSpecificBalance.fromJson(Map<String, dynamic> json) =>
       StockSpecificBalance(
-        batchNo: (json['batchNo'] as String?) ?? '',
+        wmsQty: _toDouble(json['wmsQty']),
+        stockBatchID: json['stockBatchID'] as int?,
+        batchNo: json['batchNo'] as String?,
+        batchExpiryDate: json['batchExpiryDate'] as String?,
+        locationID: (json['locationID'] as int?) ?? 0,
+        location: (json['location'] as String?) ?? '',
+        storageID: (json['storageID'] as int?) ?? 0,
         storageCode: (json['storageCode'] as String?) ?? '',
-        storageName: (json['storageName'] as String?) ?? '',
+      );
+}
+
+class StockHistoryItem {
+  final String docType;
+  final String docNo;
+  final String docDate;
+  final String customerSupplierCode;
+  final String customerSupplierName;
+  final String uom;
+  final double qty;
+  final double unitPrice;
+  final double discount;
+  final double total;
+  final String? location;
+
+  const StockHistoryItem({
+    required this.docType,
+    required this.docNo,
+    required this.docDate,
+    required this.customerSupplierCode,
+    required this.customerSupplierName,
+    required this.uom,
+    required this.qty,
+    required this.unitPrice,
+    required this.discount,
+    required this.total,
+    this.location,
+  });
+
+  factory StockHistoryItem.fromJson(Map<String, dynamic> json) =>
+      StockHistoryItem(
+        docType: (json['docType'] as String?) ?? '',
+        docNo: (json['docNo'] as String?) ?? '',
+        docDate: (json['docDate'] as String?) ?? '',
+        customerSupplierCode: (json['customerSupplierCode'] as String?) ?? '',
+        customerSupplierName: (json['customerSupplierName'] as String?) ?? '',
+        uom: (json['uom'] as String?) ?? '',
         qty: _toDouble(json['qty']),
+        unitPrice: _toDouble(json['unitPrice']),
+        discount: _toDouble(json['discount']),
+        total: _toDouble(json['total']),
+        location: json['location'] as String?,
       );
 }

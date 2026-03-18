@@ -4,7 +4,7 @@ import '../../api/api_endpoints.dart';
 import '../../api/base_client.dart';
 import '../../common/dots_loading.dart';
 import '../../common/session_manager.dart';
-import '../../models/Sales.dart';
+import '../../models/sales.dart';
 
 class SalesDetailPage extends StatefulWidget {
   final int docID;
@@ -53,6 +53,9 @@ class _SalesDetailPageState extends State<SalesDetailPage>
   }
 
   Future<void> _loadDoc() async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
     setState(() {
       _loading = true;
       _error = null;

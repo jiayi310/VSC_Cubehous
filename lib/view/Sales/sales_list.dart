@@ -4,7 +4,7 @@ import '../../api/api_endpoints.dart';
 import '../../api/base_client.dart';
 import '../../common/dots_loading.dart';
 import '../../common/session_manager.dart';
-import '../../models/Sales.dart';
+import '../../models/sales.dart';
 import 'customer_history.dart';
 import 'sales_detail.dart';
 import 'sales_form.dart';
@@ -91,6 +91,9 @@ class _SalesListPageState extends State<SalesListPage> {
   }
 
   Future<void> _fetchSales({required bool reset}) async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
     if (reset) {
       setState(() {
         _isLoading = true;
@@ -786,7 +789,7 @@ class _SortSheetState extends State<_SortSheet> {
                           color: primary)),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
-                    value: _sortBy,
+                    initialValue: _sortBy,
                     decoration: InputDecoration(
                       border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10)),

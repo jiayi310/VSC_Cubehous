@@ -6,7 +6,7 @@ import '../../../common/dots_loading.dart';
 import '../../../common/session_manager.dart';
 import '../../../models/customer.dart';
 import '../../../models/customer_type.dart';
-import '../../../models/SalesAgent.dart';
+import '../../../models/sales_agent.dart';
 import 'customer_detail.dart';
 import 'customer_form.dart';
 
@@ -93,6 +93,9 @@ class _CustomerListPageState extends State<CustomerListPage> {
   }
 
   Future<void> _fetchCustomers({required bool reset}) async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
     if (reset) {
       setState(() {
         _isLoading = true;
@@ -833,7 +836,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                             _label('Sort By', primary),
                             const SizedBox(height: 8),
                             DropdownButtonFormField<String>(
-                              value: _sortBy,
+                              initialValue: _sortBy,
                               decoration: InputDecoration(
                                 border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(10)),

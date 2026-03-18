@@ -1,14 +1,16 @@
+import 'package:cubehous/models/my_user_session.dart';
 import 'package:flutter/material.dart';
 import 'api/base_client.dart';
 import 'common/dots_loading.dart';
 import 'common/session_manager.dart';
-import 'models/company_selection.dart';
+import 'models/my_company_selection.dart';
 
 class LoginCompanyPage extends StatefulWidget {
   final List<CompanySelection> companies;
   final int userID;
   final String username;
   final String profileImage;
+  final bool userIsActive;
 
   const LoginCompanyPage({
     super.key,
@@ -16,6 +18,7 @@ class LoginCompanyPage extends StatefulWidget {
     required this.userID,
     required this.username,
     required this.profileImage,
+    required this.userIsActive
   });
 
   @override
@@ -123,30 +126,42 @@ class _LoginCompanyPageState extends State<LoginCompanyPage> {
         '/User/CreateUserSession?usermappingid=${company.userMappingID}',
       ) as Map<String, dynamic>;
 
-      final session = sessionJson['userSession'] as Map<String, dynamic>?;
+      // Response body (userSession)
+      final userSession = MyUserSession.fromJson(sessionJson['userSession'] as Map<String, dynamic>);
+      final userAccessRights = List<String>.from(sessionJson['userAccessRights'] ?? []);
+      final companyModuleIdList = List<String>.from(sessionJson['companyModuleIdList'] ?? []);
+      // final userProfile = sessionJson['userProfile'] != null
+      //   ? UserProfile.fromJson(sessionJson['userProfile'] as Map<String, dynamic>)
+      //   : null;
 
-      if (sessionJson.isEmpty || session == null || session.isEmpty) {
+      if (sessionJson.isEmpty) {
         setState(() => _errorMessage = 'You have no access to this company.');
         return;
       }
 
       await SessionManager.saveSession(
+        email: userSession.email ?? '',
         userID: widget.userID,
         userMappingID: company.userMappingID,
         companyID: company.companyID,
-        defaultLocationID: (session['defaultLocationID'] as int?) ?? 0,
+        userSessionID: userSession.userSessionID ?? '',
+        companyGUID: userSession.companyGUID ?? '',
+        apiKey: userSession.apiKey ?? '',
+        userType: userSession.userType ?? '',
         username: widget.username,
         companyName: company.companyName,
-        userSessionID: (session['userSessionID'] as String?) ?? '',
-        companyGUID: (session['companyGUID'] as String?) ?? '',
-        apiKey: (session['apiKey'] as String?) ?? '',
-        isEnableTax: (session['isEnableTax'] as bool?) ?? false,
-        isAutoBatchNo: (session['isAutoBatchNo'] as bool?) ?? false,
-        batchNoFormat: session['batchNoFormat'] as String?,
-        salesDecimalPoint: (session['salesDecimalPoint'] as int?) ?? 2,
-        purchaseDecimalPoint: (session['purchaseDecimalPoint'] as int?) ?? 2,
-        quantityDecimalPoint: (session['quantityDecimalPoint'] as int?) ?? 2,
-        costDecimalPoint: (session['costDecimalPoint'] as int?) ?? 2,
+        userAccessRight: userAccessRights,
+        companyModuleIdList: companyModuleIdList,
+        salesDecimalPoint: userSession.salesDecimalPoint ?? 2,
+        purchaseDecimalPoint: userSession.purchaseDecimalPoint ?? 2,
+        quantityDecimalPoint: userSession.quantityDecimalPoint ?? 0,
+        costDecimalPoint: userSession.costDecimalPoint ?? 2,
+        isAutoBatchNo: userSession.isAutoBatchNo ?? false,
+        batchNoFormat: userSession.batchNoFormat ?? '',
+        isEnableTax: userSession.isEnableTax ?? false,
+        defaultLocationID: userSession.defaultLocationID ?? 0,
+        defaultSalesAgentID: userSession.defaultSalesAgentID ?? 0,
+        userIsActive: widget.userIsActive,
       );
 
       if (widget.profileImage.isNotEmpty) {
@@ -244,9 +259,9 @@ class _CompanyTile extends StatelessWidget {
                         color: isSelected ? primary : null,
                       ),
                     ),
-                    if (company.type != null && company.type!.isNotEmpty)
+                    if (company.userType.isNotEmpty)
                       Text(
-                        company.type!,
+                        company.userType,
                         style: TextStyle(
                           fontSize: 12,
                           color: Theme.of(context)

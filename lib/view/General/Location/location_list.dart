@@ -3,7 +3,7 @@ import '../../../api/api_endpoints.dart';
 import '../../../api/base_client.dart';
 import '../../../common/dots_loading.dart';
 import '../../../common/session_manager.dart';
-import '../../../models/Location.dart';
+import '../../../models/location.dart';
 import 'location_detail.dart';
 
 class LocationListPage extends StatefulWidget {
@@ -48,6 +48,9 @@ class _LocationListPageState extends State<LocationListPage> {
   }
 
   Future<void> _fetchLocations() async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
     setState(() {
       _isLoading = true;
       _error = null;
@@ -64,7 +67,8 @@ class _LocationListPageState extends State<LocationListPage> {
       );
       final list = (response as List<dynamic>)
           .map((e) => Location.fromJson(e as Map<String, dynamic>))
-          .toList();
+          .toList()
+        ..sort((a, b) => (a.location ?? '').compareTo(b.location ?? ''));
       setState(() {
         _locations = list;
         _filtered = list;
@@ -84,11 +88,12 @@ class _LocationListPageState extends State<LocationListPage> {
       _searchQuery = q;
       _filtered = q.isEmpty
           ? _locations
-          : _locations.where((l) {
+          : (_locations.where((l) {
               return (l.location ?? '').toLowerCase().contains(q) ||
                   (l.address1 ?? '').toLowerCase().contains(q) ||
                   (l.phone1 ?? '').toLowerCase().contains(q);
-            }).toList();
+            }).toList()
+            ..sort((a, b) => (a.location ?? '').compareTo(b.location ?? '')));
     });
   }
 
@@ -298,27 +303,14 @@ class _LocationTile extends StatelessWidget {
                       _StatusBadge(active: location.isActive),
                     ],
                   ),
-                  if (addressParts.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    _IconRow(
-                      icon: Icons.location_on_outlined,
-                      text: addressParts,
-                    ),
-                  ],
-                  if ((location.phone1 ?? '').isNotEmpty) ...[
-                    const SizedBox(height: 2),
+                  const SizedBox(height: 2),
                     _IconRow(
                       icon: Icons.phone_outlined,
-                      text: location.phone1!,
+                      text: location.phone1?? '-',
                     ),
-                  ],
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            Icon(Icons.chevron_right,
-                size: 20,
-                color: primary.withValues(alpha: 0.4)),
           ],
         ),
       ),

@@ -3,8 +3,8 @@ import '../../../api/api_endpoints.dart';
 import '../../../api/base_client.dart';
 import '../../../common/dots_loading.dart';
 import '../../../common/session_manager.dart';
-import '../../../models/Location.dart';
-import '../../../models/Storage.dart' hide Location;
+import '../../../models/location.dart';
+import '../../../models/storage.dart' hide Location;
 
 class LocationDetailPage extends StatefulWidget {
   final Location location;
@@ -49,6 +49,9 @@ class _LocationDetailPageState extends State<LocationDetailPage>
   }
 
   Future<void> _loadStorage() async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
     setState(() {
       _storageLoading = true;
       _storageError = null;
@@ -305,11 +308,6 @@ class _StorageTile extends StatelessWidget {
                   style: const TextStyle(
                       fontSize: 14, fontWeight: FontWeight.w600),
                 ),
-                if ((storage.location ?? '').isNotEmpty)
-                  Text(
-                    storage.location!,
-                    style: TextStyle(fontSize: 12, color: muted),
-                  ),
               ],
             ),
           ),

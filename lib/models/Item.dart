@@ -1,5 +1,5 @@
-import 'TaxType.dart';
-import 'Supplier.dart';
+import 'tax_type.dart';
+import 'suppplier.dart';
 
 class Stock {
   int? stockID;
@@ -151,36 +151,36 @@ class Stock {
   }
 
   Map<String, dynamic> toJson() {
-    final Map<String, dynamic> data = new Map<String, dynamic>();
-    if (this.paginationOpt != null) {
+    final Map<String, dynamic> data = <String, dynamic>{};
+    if (paginationOpt != null) {
       data['PaginationOpt'] =
-          this.paginationOpt!.map((v) => v.toJson()).toList();
+          paginationOpt!.map((v) => v.toJson()).toList();
     }
-    data['stockID'] = this.stockID;
-    data['stockCode'] = this.stockCode;
-    data['description'] = this.description;
-    data['desc2'] = this.desc2;
-    data['image'] = this.image;
-    data['baseUOM'] = this.baseUOM;
-    data['salesUOM'] = this.salesUOM;
-    data['hasBatch'] = this.hasBatch;
-    data['isActive'] = this.isActive;
-    data['lastModifiedDateTime'] = this.lastModifiedDateTime;
-    data['lastModifiedUserID'] = this.lastModifiedUserID;
-    data['createdDateTime'] = this.createdDateTime;
-    data['createdUserID'] = this.createdUserID;
-    data['stockGroupID'] = this.stockGroupID;
-    data['stockGroupDescription'] = this.stockGroupDescription;
-    data['stockTypeID'] = this.stockTypeID;
-    data['stockTypeDescription'] = this.stockTypeDescription;
-    data['stockCategoryID'] = this.stockCategoryID;
-    data['stockCategoryDescription'] = this.stockCategoryDescription;
-    data['taxTypeID'] = this.taxTypeID;
-    data['taxCode'] = this.taxCode;
-    data['companyID'] = this.companyID;
-    data['baseUOMPrice1'] = this.baseUOMPrice1;
-    data['batchNo'] = this.batchNo;
-    data['baseUOMCost'] = this.baseUOMCost;
+    data['stockID'] = stockID;
+    data['stockCode'] = stockCode;
+    data['description'] = description;
+    data['desc2'] = desc2;
+    data['image'] = image;
+    data['baseUOM'] = baseUOM;
+    data['salesUOM'] = salesUOM;
+    data['hasBatch'] = hasBatch;
+    data['isActive'] = isActive;
+    data['lastModifiedDateTime'] = lastModifiedDateTime;
+    data['lastModifiedUserID'] = lastModifiedUserID;
+    data['createdDateTime'] = createdDateTime;
+    data['createdUserID'] = createdUserID;
+    data['stockGroupID'] = stockGroupID;
+    data['stockGroupDescription'] = stockGroupDescription;
+    data['stockTypeID'] = stockTypeID;
+    data['stockTypeDescription'] = stockTypeDescription;
+    data['stockCategoryID'] = stockCategoryID;
+    data['stockCategoryDescription'] = stockCategoryDescription;
+    data['taxTypeID'] = taxTypeID;
+    data['taxCode'] = taxCode;
+    data['companyID'] = companyID;
+    data['baseUOMPrice1'] = baseUOMPrice1;
+    data['batchNo'] = batchNo;
+    data['baseUOMCost'] = baseUOMCost;
     return data;
   }
 }
@@ -257,82 +257,82 @@ class StockDetail {
     createdUserID = json['createdUserID'];
     stockGroupID = json['stockGroupID'];
     stockGroup = json['stockGroup'] != null
-        ? new StockGroup.fromJson(json['stockGroup'])
+        ? StockGroup.fromJson(json['stockGroup'])
         : null;
     stockTypeID = json['stockTypeID'];
     stockType = json['stockType'] != null
-        ? new StockType.fromJson(json['stockType'])
+        ? StockType.fromJson(json['stockType'])
         : null;
     stockCategoryID = json['stockCategoryID'];
     stockCategory = json['stockCategory'] != null
-        ? new StockCategory.fromJson(json['stockCategory'])
+        ? StockCategory.fromJson(json['stockCategory'])
         : null;
     taxTypeID = json['taxTypeID'];
     taxType =
-        json['taxType'] != null ? new TaxType.fromJson(json['taxType']) : null;
+        json['taxType'] != null ? TaxType.fromJson(json['taxType']) : null;
     supplierID = json['supplierID'];
     supplier = json['supplier'] != null
-        ? new Supplier.fromJson(json['supplier'])
+        ? Supplier.fromJson(json['supplier'])
         : null;
     if (json['stockUOMDtoList'] != null) {
       stockUOMDtoList = <StockUOMDtoList>[];
       json['stockUOMDtoList'].forEach((v) {
-        stockUOMDtoList!.add(new StockUOMDtoList.fromJson(v));
+        stockUOMDtoList!.add(StockUOMDtoList.fromJson(v));
       });
     }
     if (json['stockBatchDtoList'] != null) {
       stockBatchDtoList = <StockBatchDtoList>[];
       json['stockBatchDtoList'].forEach((v) {
-        stockBatchDtoList!.add(new StockBatchDtoList.fromJson(v));
+        stockBatchDtoList!.add(StockBatchDtoList.fromJson(v));
       });
     }
     baseUOMPrice1 = json['baseUOMPrice1'];
   }
 
   Map<String, dynamic> toJson() {
-    final Map<String, dynamic> data = new Map<String, dynamic>();
-    data['stockID'] = this.stockID;
-    data['stockCode'] = this.stockCode;
-    data['description'] = this.description;
-    data['desc2'] = this.desc2;
-    data['image'] = this.image;
-    data['baseUOM'] = this.baseUOM;
-    data['salesUOM'] = this.salesUOM;
-    data['hasBatch'] = this.hasBatch;
-    data['isActive'] = this.isActive;
-    data['lastModifiedDateTime'] = this.lastModifiedDateTime;
-    data['lastModifiedUserID'] = this.lastModifiedUserID;
-    data['createdDateTime'] = this.createdDateTime;
-    data['createdUserID'] = this.createdUserID;
-    data['stockGroupID'] = this.stockGroupID;
-    if (this.stockGroup != null) {
-      data['stockGroup'] = this.stockGroup!.toJson();
+    final Map<String, dynamic> data = <String, dynamic>{};
+    data['stockID'] = stockID;
+    data['stockCode'] = stockCode;
+    data['description'] = description;
+    data['desc2'] = desc2;
+    data['image'] = image;
+    data['baseUOM'] = baseUOM;
+    data['salesUOM'] = salesUOM;
+    data['hasBatch'] = hasBatch;
+    data['isActive'] = isActive;
+    data['lastModifiedDateTime'] = lastModifiedDateTime;
+    data['lastModifiedUserID'] = lastModifiedUserID;
+    data['createdDateTime'] = createdDateTime;
+    data['createdUserID'] = createdUserID;
+    data['stockGroupID'] = stockGroupID;
+    if (stockGroup != null) {
+      data['stockGroup'] = stockGroup!.toJson();
     }
-    data['stockTypeID'] = this.stockTypeID;
-    if (this.stockType != null) {
-      data['stockType'] = this.stockType!.toJson();
+    data['stockTypeID'] = stockTypeID;
+    if (stockType != null) {
+      data['stockType'] = stockType!.toJson();
     }
-    data['stockCategoryID'] = this.stockCategoryID;
-    if (this.stockCategory != null) {
-      data['stockCategory'] = this.stockCategory!.toJson();
+    data['stockCategoryID'] = stockCategoryID;
+    if (stockCategory != null) {
+      data['stockCategory'] = stockCategory!.toJson();
     }
-    data['taxTypeID'] = this.taxTypeID;
-    if (this.taxType != null) {
-      data['taxType'] = this.taxType!.toJson();
+    data['taxTypeID'] = taxTypeID;
+    if (taxType != null) {
+      data['taxType'] = taxType!.toJson();
     }
-    data['supplierID'] = this.supplierID;
-    if (this.supplier != null) {
-      data['supplier'] = this.supplier!.toJson();
+    data['supplierID'] = supplierID;
+    if (supplier != null) {
+      data['supplier'] = supplier!.toJson();
     }
-    if (this.stockUOMDtoList != null) {
+    if (stockUOMDtoList != null) {
       data['stockUOMDtoList'] =
-          this.stockUOMDtoList!.map((v) => v.toJson()).toList();
+          stockUOMDtoList!.map((v) => v.toJson()).toList();
     }
-    if (this.stockBatchDtoList != null) {
+    if (stockBatchDtoList != null) {
       data['stockBatchDtoList'] =
-          this.stockBatchDtoList!.map((v) => v.toJson()).toList();
+          stockBatchDtoList!.map((v) => v.toJson()).toList();
     }
-    data['baseUOMPrice1'] = this.baseUOMPrice1;
+    data['baseUOMPrice1'] = baseUOMPrice1;
     return data;
   }
 }
@@ -523,7 +523,7 @@ class StockUOMDtoList {
     if (json['stockBarcodeDtoList'] != null) {
       stockBarcodeDtoList = <StockBarcodeDtoList>[];
       json['stockBarcodeDtoList'].forEach((v) {
-        stockBarcodeDtoList!.add(new StockBarcodeDtoList.fromJson(v));
+        stockBarcodeDtoList!.add(StockBarcodeDtoList.fromJson(v));
       });
     }
     barcodeCount = json['barcodeCount'];
@@ -531,33 +531,33 @@ class StockUOMDtoList {
   }
 
   Map<String, dynamic> toJson() {
-    final Map<String, dynamic> data = new Map<String, dynamic>();
-    data['stockUOMID'] = this.stockUOMID;
-    data['uom'] = this.uom;
-    data['shelf'] = this.shelf;
-    data['rate'] = this.rate;
-    data['price'] = this.price;
-    data['cost'] = this.cost;
-    data['minSalePrice'] = this.minSalePrice;
-    data['maxSalePrice'] = this.maxSalePrice;
-    data['minQty'] = this.reorderLevel;
-    data['maxQty'] = this.reorderQty;
-    data['price2'] = this.price2;
-    data['price3'] = this.price3;
-    data['price4'] = this.price4;
-    data['price5'] = this.price5;
-    data['price6'] = this.price6;
-    data['lastModifiedDateTime'] = this.lastModifiedDateTime;
-    data['lastModifiedUserID'] = this.lastModifiedUserID;
-    data['createdDateTime'] = this.createdDateTime;
-    data['createdUserID'] = this.createdUserID;
-    data['stockID'] = this.stockID;
-    data['companyID'] = this.companyID;
-    if (this.stockBarcodeDtoList != null) {
+    final Map<String, dynamic> data = <String, dynamic>{};
+    data['stockUOMID'] = stockUOMID;
+    data['uom'] = uom;
+    data['shelf'] = shelf;
+    data['rate'] = rate;
+    data['price'] = price;
+    data['cost'] = cost;
+    data['minSalePrice'] = minSalePrice;
+    data['maxSalePrice'] = maxSalePrice;
+    data['minQty'] = reorderLevel;
+    data['maxQty'] = reorderQty;
+    data['price2'] = price2;
+    data['price3'] = price3;
+    data['price4'] = price4;
+    data['price5'] = price5;
+    data['price6'] = price6;
+    data['lastModifiedDateTime'] = lastModifiedDateTime;
+    data['lastModifiedUserID'] = lastModifiedUserID;
+    data['createdDateTime'] = createdDateTime;
+    data['createdUserID'] = createdUserID;
+    data['stockID'] = stockID;
+    data['companyID'] = companyID;
+    if (stockBarcodeDtoList != null) {
       data['stockBarcodeDtoList'] =
-          this.stockBarcodeDtoList!.map((v) => v.toJson()).toList();
+          stockBarcodeDtoList!.map((v) => v.toJson()).toList();
     }
-    data['barcodeCount'] = this.barcodeCount;
+    data['barcodeCount'] = barcodeCount;
     //data['stockBarcodeDtoDeletedList'] = this.stockBarcodeDtoDeletedList;
     return data;
   }
@@ -601,17 +601,17 @@ class StockBarcodeDtoList {
   }
 
   Map<String, dynamic> toJson() {
-    final Map<String, dynamic> data = new Map<String, dynamic>();
-    data['stockBarcodeID'] = this.stockBarcodeID;
-    data['barcode'] = this.barcode;
-    data['description'] = this.description;
-    data['lastModifiedDateTime'] = this.lastModifiedDateTime;
-    data['lastModifiedUserID'] = this.lastModifiedUserID;
-    data['createdDateTime'] = this.createdDateTime;
-    data['createdUserID'] = this.createdUserID;
-    data['stockUOMID'] = this.stockUOMID;
-    data['stockUOM'] = this.stockUOM;
-    data['companyID'] = this.companyID;
+    final Map<String, dynamic> data = <String, dynamic>{};
+    data['stockBarcodeID'] = stockBarcodeID;
+    data['barcode'] = barcode;
+    data['description'] = description;
+    data['lastModifiedDateTime'] = lastModifiedDateTime;
+    data['lastModifiedUserID'] = lastModifiedUserID;
+    data['createdDateTime'] = createdDateTime;
+    data['createdUserID'] = createdUserID;
+    data['stockUOMID'] = stockUOMID;
+    data['stockUOM'] = stockUOM;
+    data['companyID'] = companyID;
     return data;
   }
 }
@@ -660,19 +660,19 @@ class StockBatchDtoList {
   }
 
   Map<String, dynamic> toJson() {
-    final Map<String, dynamic> data = new Map<String, dynamic>();
-    data['stockBatchID'] = this.stockBatchID;
-    data['batchNo'] = this.batchNo;
-    data['manufacturedDate'] = this.manufacturedDate;
-    data['expiryDate'] = this.expiryDate;
-    data['lastModifiedDateTime'] = this.lastModifiedDateTime;
-    data['lastModifiedUserID'] = this.lastModifiedUserID;
-    data['createdDateTime'] = this.createdDateTime;
-    data['createdUserID'] = this.createdUserID;
-    data['stockID'] = this.stockID;
-    data['companyID'] = this.companyID;
-    data['manufacturedDateOnly'] = this.manufacturedDateOnly;
-    data['expiryDateOnly'] = this.expiryDateOnly;
+    final Map<String, dynamic> data = <String, dynamic>{};
+    data['stockBatchID'] = stockBatchID;
+    data['batchNo'] = batchNo;
+    data['manufacturedDate'] = manufacturedDate;
+    data['expiryDate'] = expiryDate;
+    data['lastModifiedDateTime'] = lastModifiedDateTime;
+    data['lastModifiedUserID'] = lastModifiedUserID;
+    data['createdDateTime'] = createdDateTime;
+    data['createdUserID'] = createdUserID;
+    data['stockID'] = stockID;
+    data['companyID'] = companyID;
+    data['manufacturedDateOnly'] = manufacturedDateOnly;
+    data['expiryDateOnly'] = expiryDateOnly;
     return data;
   }
 }

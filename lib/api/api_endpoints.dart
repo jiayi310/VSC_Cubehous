@@ -22,6 +22,9 @@ class ApiEndpoints {
   static const String getQuotationList = '/Quotation/GetQuotationListByCompanyId';
   static const String getQuotation = '/Quotation/GetQuotation';
   static const String createQuotation = '/Quotation/CreateQuotation';
+  static const String updateQuotation = '/Quotation/UpdateQuotation';
+  static const String removeQuotation = '/Quotation/RemoveQuotation';
+  static const String getQuotationReport = '/Report/GetQuotationReport';
 
   // ── Sales ──────────────────────────────────────
   static const String getSalesList = '/Sales/GetSalesListByCompanyId';
@@ -36,8 +39,11 @@ class ApiEndpoints {
   static const String getStockList = '/Stock/GetStockListByCompanyId';
   static const String getStockMaxPrice = '/Stock/GetMaxPrice';
   static const String getStock = '/Stock/GetStock';
+  static const String getStockByBarcode = '/Stock/GetStockByStockCodeOrBarcode';
   static const String getStockBalance = '/Stock/GetStockBalance';
   static const String getSpecificStockBalance = '/Stock/GetSpecificStockBalance';
+  static const String getStockSalesHistory = '/Stock/GetStockSalesHistory';
+  static const String getStockPurchaseHistory = '/Stock/GetStockPurchaseHistory';
   static const String getCustomerPurchaseStock = '/Stock/GetCustomerPurchaseStock';
 
   // ── Customer ───────────────────────────────────
@@ -64,10 +70,31 @@ class ApiEndpoints {
   static const String getCollectionList = '/Collection/GetCollectListByCompany';
   static const String getCollection = '/Collection/GetCollection';
   static const String createCollection = '/Collection/CreateCollection';
+  static const String updateCollection = '/Collection/UpdateCollection';
+  static const String removeCollection = '/Collection/RemoveCollection';
   static const String getPaymentTypeList = '/Collection/GetPaymentTypeList';
+  static const String getCollectionReport = '/Report/GetCollectionReport';
+
+  // ── Purchase ───────────────────────────────────
+  static const String getPurchaseList = '/Purchase/GetPurchaseListByCompanyId';
+  static const String getPurchase = '/Purchase/GetPurchase';
+  static const String createPurchase = '/Purchase/CreatePurchase';
+  static const String removePurchase = '/Purchase/RemovePurchase';
+  static const String getPurchaseReport = '/Report/GetPurchaseReport';
 
   // ── Sales Agent ─────────────────────────────────
   static const String getSalesAgentList = '/SalesAgent/GetSalesAgentList';
+
+  // ── Shipping Method ──────────────────────────────
+  static const String getShippingMethodList = '/ShippingMethod/GetShippingMethodList';
+
+  // ── Stock Take ──────────────────────────────────
+  static const String getStockTakeList = '/StockTake/GetStockTakeListByCompanyId';
+  static const String getStockTake = '/StockTake/GetStockTake';
+  static const String createStockTake = '/StockTake/CreateStockTake';
+  static const String updateStockTake = '/StockTake/UpdateStockTake';
+  static const String removeStockTake = '/StockTake/RemoveStockTake';
+  static const String getStockTakeReport = '/Report/GetStockTakeReport';
 
   // ── Stock Filter Options ────────────────────────
   static const String getStockGroupList = '/StockGroup/GetStockGroupListByCompanyId';

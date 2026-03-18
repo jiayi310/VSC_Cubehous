@@ -2,13 +2,13 @@ class SalesAgent {
   int? salesAgentID;
   String? name;
   String? description;
-  bool? isActive;
+  bool? isDisabled;
 
   SalesAgent({
     this.salesAgentID,
     this.name,
     this.description,
-    this.isActive,
+    this.isDisabled,
   });
 
   // Convert JSON to SalesAgent object
@@ -17,7 +17,7 @@ class SalesAgent {
       salesAgentID: json['salesAgentID'] as int?,
       name: json['salesAgent'] as String?,
       description: json['description'] as String?,
-      isActive: json['isActive'] as bool?,
+      isDisabled: json['isDisabled'] as bool?,
     );
   }
 
@@ -27,7 +27,7 @@ class SalesAgent {
       'salesAgentID': salesAgentID,
       'name': name,
       'description': description,
-      'isActive': isActive,
+      'isActive': isDisabled,
     };
   }
 }

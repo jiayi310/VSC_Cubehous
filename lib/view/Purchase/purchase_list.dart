@@ -1,29 +1,28 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:intl/intl.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
 import '../../api/api_endpoints.dart';
 import '../../api/base_client.dart';
 import '../../common/dots_loading.dart';
 import '../../common/session_manager.dart';
-import '../../models/collection.dart';
-import 'collection_detail.dart';
-import 'collection_form.dart';
+import '../../models/purchase_order.dart';
+import 'purchase_detail.dart';
 
 const _sortOptions = [
   ('Doc No', 'DocNo'),
   ('Doc Date', 'DocDate'),
-  ('Customer', 'CustomerName'),
-  ('Total', 'PaymentTotal'),
+  ('Supplier', 'SupplierName'),
+  ('Total', 'FinalTotal'),
 ];
 
-class CollectionListPage extends StatefulWidget {
-  const CollectionListPage({super.key});
+class PurchaseListPage extends StatefulWidget {
+  const PurchaseListPage({super.key});
 
   @override
-  State<CollectionListPage> createState() => _CollectionListPageState();
+  State<PurchaseListPage> createState() => _PurchaseListPageState();
 }
 
-class _CollectionListPageState extends State<CollectionListPage> {
+class _PurchaseListPageState extends State<PurchaseListPage> {
   // Session
   String _apiKey = '';
   String _companyGUID = '';
@@ -31,8 +30,11 @@ class _CollectionListPageState extends State<CollectionListPage> {
   String _userSessionID = '';
   List<String> _accessRights = [];
 
+  // Settings
+  int _itemsPerPage = 20;
+
   // Data
-  List<CollectionListItem> _items = [];
+  List<PurchaseListItem> _purchases = [];
   bool _isLoading = false;
   String? _error;
 
@@ -40,13 +42,12 @@ class _CollectionListPageState extends State<CollectionListPage> {
   int _currentPage = 0;
   int _totalPages = 1;
   int _totalCount = 0;
-  static const _pageSize = 20;
 
   // Search & sort
   final _searchController = TextEditingController();
   String _searchQuery = '';
   String _sortBy = 'DocNo';
-  bool _sortAsc = false; // default descending
+  bool _sortAsc = false;
 
   // Date filter
   DateTime _fromDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
@@ -56,9 +57,8 @@ class _CollectionListPageState extends State<CollectionListPage> {
 
   final _scrollController = ScrollController();
 
-  // Only count non-default state: sortBy changed OR direction flipped to ascending
   int get _activeFilters =>
-      (_sortBy != 'DocNo' ? 1 : 0) + (_sortAsc ? 1 : 0);
+      (_sortBy != 'DocNo' ? 1 : 0) + (!_sortAsc ? 0 : 1);
 
   @override
   void initState() {
@@ -80,13 +80,15 @@ class _CollectionListPageState extends State<CollectionListPage> {
       SessionManager.getUserID(),
       SessionManager.getUserSessionID(),
       SessionManager.getUserAccessRight(),
+      SessionManager.getItemsPerPage(),
     ]);
     _apiKey = results[0] as String;
     _companyGUID = results[1] as String;
     _userID = results[2] as int;
     _userSessionID = results[3] as String;
     _accessRights = results[4] as List<String>;
-    await _fetchCollections(page: 0);
+    _itemsPerPage = results[5] as int;
+    await _fetchPurchases(page: 0);
   }
 
   bool _hasAccess(String right) => _accessRights.contains(right);
@@ -132,9 +134,11 @@ class _CollectionListPageState extends State<CollectionListPage> {
                     size: 32, color: Colors.red),
               ),
               const SizedBox(height: 16),
-              const Text('Delete Collection',
-                  style: TextStyle(
-                      fontSize: 17, fontWeight: FontWeight.w700)),
+              const Text(
+                'Delete Purchase Order',
+                style:
+                    TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+              ),
               const SizedBox(height: 8),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -159,16 +163,17 @@ class _CollectionListPageState extends State<CollectionListPage> {
                           padding:
                               const EdgeInsets.symmetric(vertical: 16),
                           shape: const RoundedRectangleBorder(
-                              borderRadius: BorderRadius.only(
-                                  bottomLeft: Radius.circular(20))),
+                            borderRadius: BorderRadius.only(
+                                bottomLeft: Radius.circular(20)),
+                          ),
                         ),
                         onPressed: () => Navigator.pop(ctx, false),
                         child: Text('Cancel',
                             style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600,
-                                color:
-                                    cs.onSurface.withValues(alpha: 0.6))),
+                                color: cs.onSurface
+                                    .withValues(alpha: 0.6))),
                       ),
                     ),
                     VerticalDivider(
@@ -180,8 +185,9 @@ class _CollectionListPageState extends State<CollectionListPage> {
                           padding:
                               const EdgeInsets.symmetric(vertical: 16),
                           shape: const RoundedRectangleBorder(
-                              borderRadius: BorderRadius.only(
-                                  bottomRight: Radius.circular(20))),
+                            borderRadius: BorderRadius.only(
+                                bottomRight: Radius.circular(20)),
+                          ),
                         ),
                         onPressed: () => Navigator.pop(ctx, true),
                         child: const Text('Delete',
@@ -201,13 +207,10 @@ class _CollectionListPageState extends State<CollectionListPage> {
     );
   }
 
-  Future<bool> _deleteCollection(int docID) async {
-    _apiKey = await SessionManager.getApiKey();
-    _companyGUID = await SessionManager.getCompanyGUID();
-    _userSessionID = await SessionManager.getUserSessionID();
+  Future<bool> _deletePurchase(int docID) async {
     try {
       await BaseClient.post(
-        ApiEndpoints.removeCollection,
+        ApiEndpoints.removePurchase,
         body: {
           'apiKey': _apiKey,
           'companyGUID': _companyGUID,
@@ -230,68 +233,7 @@ class _CollectionListPageState extends State<CollectionListPage> {
     }
   }
 
-  Future<void> _onEditTap(CollectionListItem item) async {
-    if (!_hasAccess('COLLECT_EDIT')) {
-      _showNoAccessDialog();
-      return;
-    }
-    CollectionDoc? doc;
-    try {
-      final json = await BaseClient.post(
-        ApiEndpoints.getCollection,
-        body: {
-          'apiKey': _apiKey,
-          'companyGUID': _companyGUID,
-          'userID': _userID,
-          'userSessionID': _userSessionID,
-          'docID': item.docID,
-        },
-      );
-      doc = CollectionDoc.fromJson(json as Map<String, dynamic>);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(
-            content: Text('Failed to load collection: $e'),
-            behavior: SnackBarBehavior.floating,
-          ));
-      }
-      return;
-    }
-    if (!mounted) return;
-    final updated = await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => CollectionFormPage(initialDoc: doc),
-      ),
-    );
-    if (updated == true && mounted) _fetchCollections(page: _currentPage);
-  }
-
-  Future<void> _onDeleteTap(CollectionListItem item) async {
-    if (!_hasAccess('COLLECT_DELETE')) {
-      _showNoAccessDialog();
-      return;
-    }
-    final confirmed = await _confirmDelete(item.docNo);
-    if (confirmed != true) return;
-    final ok = await _deleteCollection(item.docID);
-    if (ok && mounted) {
-      setState(() => _items.removeWhere((e) => e.docID == item.docID));
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(
-          content: Text('Collection deleted'),
-          behavior: SnackBarBehavior.floating,
-        ));
-    }
-  }
-
-  Future<void> _fetchCollections({required int page}) async {
-    _apiKey = await SessionManager.getApiKey();
-    _companyGUID = await SessionManager.getCompanyGUID();
-    _userSessionID = await SessionManager.getUserSessionID();
+  Future<void> _fetchPurchases({required int page}) async {
     if (_isLoading) return;
     setState(() {
       _isLoading = true;
@@ -299,7 +241,7 @@ class _CollectionListPageState extends State<CollectionListPage> {
     });
     try {
       final response = await BaseClient.post(
-        ApiEndpoints.getCollectionList,
+        ApiEndpoints.getPurchaseList,
         body: {
           'apiKey': _apiKey,
           'companyGUID': _companyGUID,
@@ -307,9 +249,10 @@ class _CollectionListPageState extends State<CollectionListPage> {
           'userSessionID': _userSessionID,
           'isFilterByCreatedDateTime': false,
           'fromDate': _fromDate.toIso8601String(),
-          'toDate': _toDate.add(const Duration(days: 1)).toIso8601String(),
+          'toDate':
+              _toDate.add(const Duration(days: 1)).toIso8601String(),
           'pageIndex': page,
-          'pageSize': _pageSize,
+          'pageSize': _itemsPerPage,
           'sortBy': _sortBy,
           'isSortByAscending': _sortAsc,
           'searchTerm': _searchQuery.isEmpty ? null : _searchQuery,
@@ -317,17 +260,20 @@ class _CollectionListPageState extends State<CollectionListPage> {
       );
 
       final result =
-          CollectionResponse.fromJson(response as Map<String, dynamic>);
+          PurchaseResponse.fromJson(response as Map<String, dynamic>);
       final items = result.data ?? [];
-      final totalRecord = result.pagination?.totalRecord ?? items.length;
-      final pageSize = result.pagination?.pageSize ?? _pageSize;
+      final totalRecord =
+          result.pagination?.totalRecord ?? items.length;
+      final pageSize =
+          result.pagination?.pageSize ?? _itemsPerPage;
 
       if (mounted) {
         setState(() {
-          _items = items;
+          _purchases = items;
           _currentPage = page;
           _totalCount = totalRecord;
-          _totalPages = pageSize > 0 ? (totalRecord / pageSize).ceil() : 1;
+          _totalPages =
+              pageSize > 0 ? (totalRecord / pageSize).ceil() : 1;
           if (_totalPages < 1) _totalPages = 1;
         });
         if (_scrollController.hasClients) _scrollController.jumpTo(0);
@@ -339,11 +285,11 @@ class _CollectionListPageState extends State<CollectionListPage> {
     }
   }
 
-  Future<void> _onRefresh() => _fetchCollections(page: 0);
+  Future<void> _onRefresh() => _fetchPurchases(page: 0);
 
   void _onSearchSubmit(String value) {
     setState(() => _searchQuery = value.trim());
-    _fetchCollections(page: 0);
+    _fetchPurchases(page: 0);
   }
 
   Future<void> _pickFromDate() async {
@@ -355,7 +301,7 @@ class _CollectionListPageState extends State<CollectionListPage> {
     );
     if (picked != null) {
       setState(() => _fromDate = picked);
-      _fetchCollections(page: 0);
+      _fetchPurchases(page: 0);
     }
   }
 
@@ -368,7 +314,7 @@ class _CollectionListPageState extends State<CollectionListPage> {
     );
     if (picked != null) {
       setState(() => _toDate = picked);
-      _fetchCollections(page: 0);
+      _fetchPurchases(page: 0);
     }
   }
 
@@ -385,17 +331,37 @@ class _CollectionListPageState extends State<CollectionListPage> {
             _sortBy = sortBy;
             _sortAsc = sortAsc;
           });
-          _fetchCollections(page: 0);
+          _fetchPurchases(page: 0);
         },
         onReset: () {
           setState(() {
             _sortBy = 'DocNo';
-            _sortAsc = false;
+            _sortAsc = true;
           });
-          _fetchCollections(page: 0);
+          _fetchPurchases(page: 0);
         },
       ),
     );
+  }
+
+  Future<void> _onDeleteTap(PurchaseListItem p) async {
+    if (!_hasAccess('PURCHASE_DELETE')) {
+      _showNoAccessDialog();
+      return;
+    }
+    final confirmed = await _confirmDelete(p.docNo);
+    if (confirmed != true) return;
+    final ok = await _deletePurchase(p.docID);
+    if (ok && mounted) {
+      setState(
+          () => _purchases.removeWhere((e) => e.docID == p.docID));
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+          content: Text('Purchase order deleted'),
+          behavior: SnackBarBehavior.floating,
+        ));
+    }
   }
 
   @override
@@ -403,19 +369,25 @@ class _CollectionListPageState extends State<CollectionListPage> {
     final primary = Theme.of(context).colorScheme.primary;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Collections',
+        title: const Text('Purchase Orders',
             style: TextStyle(fontWeight: FontWeight.w600)),
         centerTitle: true,
         actions: [
           IconButton(
             icon: const Icon(Icons.add),
-            tooltip: 'New Collection',
-            onPressed: () async {
-              final created = await Navigator.push<bool>(
-                context,
-                MaterialPageRoute(builder: (_) => const CollectionFormPage()),
-              );
-              if (created == true) _fetchCollections(page: 0);
+            tooltip: 'New Purchase Order',
+            onPressed: () {
+              if (!_hasAccess('PURCHASE_ADD')) {
+                _showNoAccessDialog();
+                return;
+              }
+              ScaffoldMessenger.of(context)
+                ..hideCurrentSnackBar()
+                ..showSnackBar(const SnackBar(
+                  content:
+                      Text('Create purchase available on web'),
+                  behavior: SnackBarBehavior.floating,
+                ));
             },
           ),
         ],
@@ -429,22 +401,20 @@ class _CollectionListPageState extends State<CollectionListPage> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: _DatePill(
-                        label: 'From',
-                        date: _dateFmt.format(_fromDate),
-                        onTap: _pickFromDate,
-                        primary: primary,
-                      ),
-                    ),
+                        child: _DatePill(
+                      label: 'From',
+                      date: _dateFmt.format(_fromDate),
+                      onTap: _pickFromDate,
+                      primary: primary,
+                    )),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: _DatePill(
-                        label: 'To',
-                        date: _dateFmt.format(_toDate),
-                        onTap: _pickToDate,
-                        primary: primary,
-                      ),
-                    ),
+                        child: _DatePill(
+                      label: 'To',
+                      date: _dateFmt.format(_toDate),
+                      onTap: _pickToDate,
+                      primary: primary,
+                    )),
                   ],
                 ),
               ),
@@ -461,20 +431,24 @@ class _CollectionListPageState extends State<CollectionListPage> {
                         onSubmitted: _onSearchSubmit,
                         onChanged: (v) => setState(() {}),
                         decoration: InputDecoration(
-                          hintText: 'Search collections...',
-                          suffixIcon: _searchController.text.isNotEmpty
-                              ? IconButton(
-                                  icon: const Icon(Icons.clear, size: 18),
-                                  onPressed: () {
-                                    _searchController.clear();
-                                    setState(() => _searchQuery = '');
-                                    _fetchCollections(page: 0);
-                                  },
-                                )
-                              : null,
+                          hintText: 'Search purchase orders...',
+                          suffixIcon:
+                              _searchController.text.isNotEmpty
+                                  ? IconButton(
+                                      icon: const Icon(Icons.clear,
+                                          size: 18),
+                                      onPressed: () {
+                                        _searchController.clear();
+                                        setState(
+                                            () => _searchQuery = '');
+                                        _fetchPurchases(page: 0);
+                                      },
+                                    )
+                                  : null,
                           isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(
-                              vertical: 10, horizontal: 12),
+                          contentPadding:
+                              const EdgeInsets.symmetric(
+                                  vertical: 10, horizontal: 12),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                             borderSide: BorderSide.none,
@@ -492,7 +466,8 @@ class _CollectionListPageState extends State<CollectionListPage> {
                       borderRadius: BorderRadius.circular(12),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(12),
-                        onTap: () => _onSearchSubmit(_searchController.text),
+                        onTap: () =>
+                            _onSearchSubmit(_searchController.text),
                         child: const SizedBox(
                           width: 44,
                           height: 44,
@@ -501,7 +476,7 @@ class _CollectionListPageState extends State<CollectionListPage> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    // Filter / sort button
+                    // Filter button
                     Stack(
                       alignment: Alignment.center,
                       children: [
@@ -516,7 +491,8 @@ class _CollectionListPageState extends State<CollectionListPage> {
                             child: const SizedBox(
                               width: 44,
                               height: 44,
-                              child: Icon(Icons.tune_outlined, size: 20),
+                              child: Icon(Icons.tune_outlined,
+                                  size: 20),
                             ),
                           ),
                         ),
@@ -537,7 +513,8 @@ class _CollectionListPageState extends State<CollectionListPage> {
                                   style: const TextStyle(
                                       fontSize: 8,
                                       color: Colors.white,
-                                      fontWeight: FontWeight.bold),
+                                      fontWeight:
+                                          FontWeight.bold),
                                 ),
                               ),
                             ),
@@ -559,11 +536,12 @@ class _CollectionListPageState extends State<CollectionListPage> {
     if (_isLoading) return const Center(child: DotsLoading());
     if (_error != null) return _buildError();
     final primary = Theme.of(context).colorScheme.primary;
-    final start = _currentPage * _pageSize + 1;
-    final end = ((_currentPage + 1) * _pageSize).clamp(0, _totalCount);
+    final start = _currentPage * _itemsPerPage + 1;
+    final end =
+        ((_currentPage + 1) * _itemsPerPage).clamp(0, _totalCount);
     return Column(
       children: [
-        if (_items.isEmpty)
+        if (_purchases.isEmpty)
           Expanded(child: _buildEmpty())
         else
           Expanded(child: _buildList(start: start, end: end)),
@@ -573,10 +551,10 @@ class _CollectionListPageState extends State<CollectionListPage> {
           isLoading: _isLoading,
           primary: primary,
           onPrev: _currentPage > 0
-              ? () => _fetchCollections(page: _currentPage - 1)
+              ? () => _fetchPurchases(page: _currentPage - 1)
               : null,
           onNext: _currentPage < _totalPages - 1
-              ? () => _fetchCollections(page: _currentPage + 1)
+              ? () => _fetchPurchases(page: _currentPage + 1)
               : null,
         ),
       ],
@@ -589,9 +567,9 @@ class _CollectionListPageState extends State<CollectionListPage> {
       child: SlidableAutoCloseBehavior(
         child: ListView.builder(
           controller: _scrollController,
-          itemCount: _items.length + 1,
+          itemCount: _purchases.length + 1,
           itemBuilder: (context, i) {
-            if (i == _items.length) {
+            if (i == _purchases.length) {
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 child: Center(
@@ -608,37 +586,20 @@ class _CollectionListPageState extends State<CollectionListPage> {
                 ),
               );
             }
-            final item = _items[i];
+            final p = _purchases[i];
             return Slidable(
-              key: ValueKey(item.docID),
+              key: ValueKey(p.docID),
               endActionPane: ActionPane(
                 motion: const DrawerMotion(),
-                extentRatio: 0.48,
+                extentRatio: 0.26,
                 children: [
                   CustomSlidableAction(
-                    onPressed: (_) => _onEditTap(item),
+                    onPressed: (_) => _onDeleteTap(p),
                     backgroundColor:
-                        const Color(0xFF1565C0).withValues(alpha: 0.12),
-                    child: const Column(
+                        Colors.red.withValues(alpha: 0.12),
+                    child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.edit_outlined,
-                            size: 26, color: Color(0xFF1565C0)),
-                        SizedBox(height: 4),
-                        Text('Edit',
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF1565C0))),
-                      ],
-                    ),
-                  ),
-                  CustomSlidableAction(
-                    onPressed: (_) => _onDeleteTap(item),
-                    backgroundColor: Colors.red.withValues(alpha: 0.12),
-                    child: const Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
+                      children: const [
                         Icon(Icons.delete_outline,
                             size: 26, color: Colors.red),
                         SizedBox(height: 4),
@@ -652,20 +613,20 @@ class _CollectionListPageState extends State<CollectionListPage> {
                   ),
                 ],
               ),
-              child: _CollectionTile(
-                item: item,
+              child: _PurchaseTile(
+                purchase: p,
                 amtFmt: _amtFmt,
                 dateFmt: _dateFmt,
                 onTap: () async {
-                  final deleted = await Navigator.push<bool>(
+                  final result = await Navigator.push<bool>(
                     context,
                     MaterialPageRoute(
                       builder: (_) =>
-                          CollectionDetailPage(docID: item.docID),
+                          PurchaseDetailPage(docID: p.docID),
                     ),
                   );
-                  if (deleted == true && mounted) {
-                    _fetchCollections(page: _currentPage);
+                  if (result == true && mounted) {
+                    _fetchPurchases(page: _currentPage);
                   }
                 },
               ),
@@ -690,8 +651,9 @@ class _CollectionListPageState extends State<CollectionListPage> {
                     .error
                     .withValues(alpha: 0.6)),
             const SizedBox(height: 14),
-            const Text('Failed to load collections',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+            const Text('Failed to load purchase orders',
+                style: TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             Text(_error ?? '',
                 textAlign: TextAlign.center,
@@ -703,7 +665,7 @@ class _CollectionListPageState extends State<CollectionListPage> {
                         .withValues(alpha: 0.4))),
             const SizedBox(height: 16),
             FilledButton.icon(
-              onPressed: () => _fetchCollections(page: 0),
+              onPressed: () => _fetchPurchases(page: 0),
               icon: const Icon(Icons.refresh),
               label: const Text('Retry'),
             ),
@@ -720,7 +682,7 @@ class _CollectionListPageState extends State<CollectionListPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.payments_outlined,
+            Icon(Icons.shopping_basket_outlined,
                 size: 52,
                 color: Theme.of(context)
                     .colorScheme
@@ -730,7 +692,7 @@ class _CollectionListPageState extends State<CollectionListPage> {
             Text(
               _searchQuery.isNotEmpty
                   ? 'No results for "$_searchQuery"'
-                  : 'No collections found',
+                  : 'No purchase orders found',
               style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
@@ -747,172 +709,7 @@ class _CollectionListPageState extends State<CollectionListPage> {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Collection Tile
-// ─────────────────────────────────────────────────────────────────────
-
-class _CollectionTile extends StatelessWidget {
-  final CollectionListItem item;
-  final NumberFormat amtFmt;
-  final DateFormat dateFmt;
-  final VoidCallback onTap;
-
-  const _CollectionTile({
-    required this.item,
-    required this.amtFmt,
-    required this.dateFmt,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    final muted =
-        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.65);
-
-    DateTime? docDate;
-    try {
-      docDate = DateTime.parse(item.docDate);
-    } catch (_) {}
-
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: Theme.of(context)
-                  .colorScheme
-                  .outline
-                  .withValues(alpha: 0.08),
-            ),
-          ),
-        ),
-        child: Row(
-          children: [
-            // Doc icon
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: item.isVoid
-                    ? Colors.red.withValues(alpha: 0.1)
-                    : primary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(
-                Icons.payments_outlined,
-                size: 22,
-                color: item.isVoid ? Colors.red : primary,
-              ),
-            ),
-            const SizedBox(width: 14),
-            // Content
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Row 1: DocNo + VOID badge | Date
-                  Row(
-                    children: [
-                      Text(
-                        item.docNo,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: primary,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      if (item.isVoid) _VoidBadge(),
-                      const Spacer(),
-                      Text(
-                        docDate != null
-                            ? dateFmt.format(docDate)
-                            : item.docDate,
-                        style: TextStyle(fontSize: 11, color: muted),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  // Row 2: Customer name
-                  Text(
-                    item.customerName,
-                    style: const TextStyle(
-                        fontSize: 14, fontWeight: FontWeight.w500),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  // Row 3: Payment type chip | Total
-                  Row(
-                    children: [
-                      if ((item.paymentType ?? '').isNotEmpty) ...[
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: primary.withValues(alpha: 0.08),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            item.paymentType!,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                              color: primary,
-                            ),
-                          ),
-                        ),
-                      ] else
-                        const SizedBox.shrink(),
-                      const Spacer(),
-                      Text(
-                        'RM ${amtFmt.format(item.paymentTotal)}',
-                        style: const TextStyle(
-                            fontSize: 13, fontWeight: FontWeight.w700),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Void Badge
-// ─────────────────────────────────────────────────────────────────────
-
-class _VoidBadge extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: Colors.red.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: const Text(
-        'VOID',
-        style: TextStyle(
-          fontSize: 9,
-          fontWeight: FontWeight.w800,
-          color: Colors.red,
-          letterSpacing: 0.5,
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Date Pill
+// Date pill
 // ─────────────────────────────────────────────────────────────────────
 
 class _DatePill extends StatelessWidget {
@@ -934,7 +731,8 @@ class _DatePill extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: primary.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(10),
@@ -970,6 +768,150 @@ class _DatePill extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Purchase tile
+// ─────────────────────────────────────────────────────────────────────
+
+class _PurchaseTile extends StatelessWidget {
+  final PurchaseListItem purchase;
+  final NumberFormat amtFmt;
+  final DateFormat dateFmt;
+  final VoidCallback onTap;
+
+  const _PurchaseTile({
+    required this.purchase,
+    required this.amtFmt,
+    required this.dateFmt,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    final muted =
+        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.65);
+
+    DateTime? docDate;
+    try {
+      docDate = DateTime.parse(purchase.docDate);
+    } catch (_) {}
+
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: Theme.of(context)
+                  .colorScheme
+                  .outline
+                  .withValues(alpha: 0.08),
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            // Doc icon
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: purchase.isVoid
+                    ? Colors.red.withValues(alpha: 0.1)
+                    : primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                Icons.shopping_basket_outlined,
+                size: 22,
+                color: purchase.isVoid ? Colors.red : primary,
+              ),
+            ),
+            const SizedBox(width: 14),
+            // Content
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Row 1: DocNo + VOID badge | Date
+                  Row(
+                    children: [
+                      Text(
+                        purchase.docNo,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: primary,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      if (purchase.isVoid) _VoidBadge(),
+                      const Spacer(),
+                      Text(
+                        docDate != null
+                            ? dateFmt.format(docDate)
+                            : purchase.docDate,
+                        style:
+                            TextStyle(fontSize: 11, color: muted),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  // Row 2: Supplier name
+                  Text(
+                    purchase.supplierName,
+                    style: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w500),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  // Row 3: RECEIVED badge | Total
+                  Row(
+                    children: [
+                      if (purchase.isReceive)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color:
+                                Colors.green.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            'RECEIVED',
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.green,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        )
+                      else
+                        const SizedBox.shrink(),
+                      const Spacer(),
+                      Text(
+                        'RM ${amtFmt.format(purchase.finalTotal)}',
+                        style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Pagination bar
 // ─────────────────────────────────────────────────────────────────────
 
@@ -997,8 +939,10 @@ class _PaginationBar extends StatelessWidget {
       decoration: BoxDecoration(
         border: Border(
           top: BorderSide(
-            color:
-                Theme.of(context).colorScheme.outline.withValues(alpha: 0.15),
+            color: Theme.of(context)
+                .colorScheme
+                .outline
+                .withValues(alpha: 0.15),
           ),
         ),
       ),
@@ -1033,6 +977,28 @@ class _PaginationBar extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _VoidBadge extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.red.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: const Text(
+        'VOID',
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w800,
+          color: Colors.red,
+          letterSpacing: 0.5,
+        ),
       ),
     );
   }
@@ -1082,7 +1048,8 @@ class _SortSheetState extends State<_SortSheet> {
       expand: false,
       builder: (_, scrollCtrl) => Material(
         color: surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius:
+            const BorderRadius.vertical(top: Radius.circular(20)),
         child: Column(
           children: [
             const SizedBox(height: 12),
@@ -1105,7 +1072,8 @@ class _SortSheetState extends State<_SortSheet> {
                 children: [
                   const Text('Sort',
                       style: TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.w700)),
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700)),
                   const Spacer(),
                   TextButton(
                     onPressed: () {
@@ -1121,7 +1089,8 @@ class _SortSheetState extends State<_SortSheet> {
             Expanded(
               child: ListView(
                 controller: scrollCtrl,
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                padding:
+                    const EdgeInsets.fromLTRB(20, 16, 20, 32),
                 children: [
                   Text('Sort By',
                       style: TextStyle(
@@ -1133,16 +1102,19 @@ class _SortSheetState extends State<_SortSheet> {
                     initialValue: _sortBy,
                     decoration: InputDecoration(
                       border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10)),
+                          borderRadius:
+                              BorderRadius.circular(10)),
                       isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 12),
+                      contentPadding:
+                          const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 12),
                     ),
                     items: _sortOptions
-                        .map((o) =>
-                            DropdownMenuItem(value: o.$2, child: Text(o.$1)))
+                        .map((o) => DropdownMenuItem(
+                            value: o.$2, child: Text(o.$1)))
                         .toList(),
-                    onChanged: (v) => setState(() => _sortBy = v!),
+                    onChanged: (v) =>
+                        setState(() => _sortBy = v!),
                   ),
                   const SizedBox(height: 16),
                   Text('Direction',
@@ -1158,7 +1130,8 @@ class _SortSheetState extends State<_SortSheet> {
                           label: 'Ascending',
                           icon: Icons.arrow_upward_rounded,
                           selected: _sortAsc,
-                          onTap: () => setState(() => _sortAsc = true),
+                          onTap: () =>
+                              setState(() => _sortAsc = true),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -1167,7 +1140,8 @@ class _SortSheetState extends State<_SortSheet> {
                           label: 'Descending',
                           icon: Icons.arrow_downward_rounded,
                           selected: !_sortAsc,
-                          onTap: () => setState(() => _sortAsc = false),
+                          onTap: () =>
+                              setState(() => _sortAsc = false),
                         ),
                       ),
                     ],
@@ -1177,16 +1151,19 @@ class _SortSheetState extends State<_SortSheet> {
                     width: double.infinity,
                     child: FilledButton(
                       style: FilledButton.styleFrom(
-                        minimumSize: const Size.fromHeight(48),
+                        minimumSize:
+                            const Size.fromHeight(48),
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
+                            borderRadius:
+                                BorderRadius.circular(12)),
                       ),
                       onPressed: () {
                         Navigator.pop(context);
                         widget.onApply(_sortBy, _sortAsc);
                       },
                       child: const Text('Apply',
-                          style: TextStyle(fontWeight: FontWeight.w600)),
+                          style: TextStyle(
+                              fontWeight: FontWeight.w600)),
                     ),
                   ),
                 ],
@@ -1221,8 +1198,9 @@ class _DirectionChip extends StatelessWidget {
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(vertical: 10),
         decoration: BoxDecoration(
-          color:
-              selected ? primary.withValues(alpha: 0.1) : Colors.transparent,
+          color: selected
+              ? primary.withValues(alpha: 0.1)
+              : Colors.transparent,
           border: Border.all(
               color: selected
                   ? primary
@@ -1235,13 +1213,15 @@ class _DirectionChip extends StatelessWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 16, color: selected ? primary : null),
+            Icon(icon,
+                size: 16, color: selected ? primary : null),
             const SizedBox(width: 6),
             Text(label,
                 style: TextStyle(
                     fontSize: 13,
-                    fontWeight:
-                        selected ? FontWeight.w600 : FontWeight.normal,
+                    fontWeight: selected
+                        ? FontWeight.w600
+                        : FontWeight.normal,
                     color: selected ? primary : null)),
           ],
         ),

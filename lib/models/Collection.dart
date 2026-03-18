@@ -1,4 +1,4 @@
-import 'Pagination.dart';
+import 'pagination.dart';
 
 double _toD(dynamic v) {
   if (v == null) return 0.0;

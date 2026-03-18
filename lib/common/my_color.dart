@@ -22,4 +22,7 @@ class Mycolor {
   static const Color darkBackground = Color(0xFF0F1923);
   static const Color darkSurface = Color(0xFF1A2740);
   static const Color darkCardSurface = Color(0xFF1E2F4A);
+
+  static const Color discountTextColor = Color.fromARGB(255, 255, 25, 0);
+  static const Color taxTextColor = Color.fromARGB(255, 2, 125, 0);
 }

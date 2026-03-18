@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../models/Supplier.dart';
+import '../../../models/suppplier.dart';
 
 class SupplierDetailPage extends StatelessWidget {
   final Supplier supplier;
@@ -83,7 +83,7 @@ class SupplierDetailPage extends StatelessWidget {
         : primary;
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 5),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(16),
@@ -91,7 +91,7 @@ class SupplierDetailPage extends StatelessWidget {
       child: Row(
         children: [
           CircleAvatar(
-            radius: 30,
+            radius: 35,
             backgroundColor: color.withValues(alpha: 0.15),
             child: Text(
               name.isNotEmpty ? name[0].toUpperCase() : '?',

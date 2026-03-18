@@ -1,5 +1,7 @@
 import 'package:http/http.dart' as http;
+import 'package:cubehous/common/session_expired_handler.dart';
 import 'dart:convert';
+import 'dart:typed_data';
 
 const String baseUrl = "http://52.187.89.101:9000/api";
 // const String baseUrl = "https://app.cubehous.com/api";
@@ -17,9 +19,12 @@ class BaseClient {
         const Duration(seconds: timeoutDuration),
         onTimeout: () => throw TimeoutException('Request timeout'),
       );
-
       return _handleResponse(response);
+    } on UnauthorizedException {
+      SessionExpiredHandler.handleSessionExpired();
+      rethrow;
     } catch (e) {
+      if (e is Exception) rethrow;
       throw Exception('GET Request failed: $e');
     }
   }
@@ -38,9 +43,42 @@ class BaseClient {
         const Duration(seconds: timeoutDuration),
         onTimeout: () => throw TimeoutException('Request timeout'),
       );
-
       return _handleResponse(response);
+    } on UnauthorizedException {
+      SessionExpiredHandler.handleSessionExpired();
+      rethrow;
     } catch (e) {
+      if (e is Exception) rethrow;
+      throw Exception('POST Request failed: $e');
+    }
+  }
+
+  // POST request returning raw bytes (e.g. PDF reports)
+  static Future<Uint8List> postBytes(
+    String endpoint, {
+    required Map<String, dynamic> body,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl$endpoint'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': '*/*',
+        },
+        body: jsonEncode(body),
+      ).timeout(
+        const Duration(seconds: timeoutDuration),
+        onTimeout: () => throw TimeoutException('Request timeout'),
+      );
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return response.bodyBytes;
+      }
+      throw ServerException('Error with status code: ${response.statusCode}');
+    } on UnauthorizedException {
+      SessionExpiredHandler.handleSessionExpired();
+      rethrow;
+    } catch (e) {
+      if (e is Exception) rethrow;
       throw Exception('POST Request failed: $e');
     }
   }
@@ -59,9 +97,12 @@ class BaseClient {
         const Duration(seconds: timeoutDuration),
         onTimeout: () => throw TimeoutException('Request timeout'),
       );
-
       return _handleResponse(response);
+    } on UnauthorizedException {
+      SessionExpiredHandler.handleSessionExpired();
+      rethrow;
     } catch (e) {
+      if (e is Exception) rethrow;
       throw Exception('PUT Request failed: $e');
     }
   }
@@ -76,9 +117,12 @@ class BaseClient {
         const Duration(seconds: timeoutDuration),
         onTimeout: () => throw TimeoutException('Request timeout'),
       );
-
       return _handleResponse(response);
+    } on UnauthorizedException {
+      SessionExpiredHandler.handleSessionExpired();
+      rethrow;
     } catch (e) {
+      if (e is Exception) rethrow;
       throw Exception('DELETE Request failed: $e');
     }
   }

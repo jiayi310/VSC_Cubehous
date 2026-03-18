@@ -45,7 +45,7 @@ class _StockItemPageState extends State<StockItemPage> {
   String _userSessionID = '';
 
   // Settings
-  String _displayMode = 'grid';
+  String _imageMode = 'show';
   int _itemsPerPage = 20;
 
   // Data
@@ -99,13 +99,16 @@ class _StockItemPageState extends State<StockItemPage> {
     _companyGUID = await SessionManager.getCompanyGUID();
     _userID = await SessionManager.getUserID();
     _userSessionID = await SessionManager.getUserSessionID();
-    _displayMode = await SessionManager.getDisplayMode();
+    _imageMode = await SessionManager.getImageMode();
     _itemsPerPage = await SessionManager.getItemsPerPage();
     if (mounted) setState(() {});
     await _fetch(page: 0);
   }
 
   Future<void> _fetch({int? page}) async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
     if (_isLoading) return;
     final targetPage = page ?? _currentPage;
 
@@ -154,16 +157,16 @@ class _StockItemPageState extends State<StockItemPage> {
         if (_scrollController.hasClients) _scrollController.jumpTo(0);
       }
     } catch (e) {
-      print('Error: ' + e.toString());
+      print('Error: $e');
       if (mounted) setState(() => _error = 'Failed to load items. Please try again.');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _setDisplayMode(String mode) async {
-    await SessionManager.saveDisplayMode(mode);
-    if (mounted) setState(() => _displayMode = mode);
+  Future<void> _setImageMode(String mode) async {
+    await SessionManager.saveImageMode(mode);
+    if (mounted) setState(() => _imageMode = mode);
   }
 
   void _onSearchSubmit(String query) {
@@ -341,20 +344,20 @@ class _StockItemPageState extends State<StockItemPage> {
               // Display mode toggle
               _ModeButton(
                 icon: Icons.grid_view_rounded,
-                active: _displayMode == 'grid',
-                onTap: () => _setDisplayMode('grid'),
+                active: _imageMode == 'show',
+                onTap: () => _setImageMode('show'),
               ),
               const SizedBox(width: 4),
               _ModeButton(
                 icon: Icons.view_list_outlined,
-                active: _displayMode == 'list',
-                onTap: () => _setDisplayMode('list'),
+                active: _imageMode == 'noShow',
+                onTap: () => _setImageMode('noShow'),
               ),
             ],
           ),
         ),
         Expanded(
-          child: _displayMode == 'grid' ? _buildGrid() : _buildList(),
+          child: _imageMode == 'show' ? _buildGrid() : _buildList(),
         ),
         // Pagination bar
         _PaginationBar(
@@ -1026,7 +1029,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                             _label('Sort By', primary),
                             const SizedBox(height: 8),
                             DropdownButtonFormField<String>(
-                              value: _sortBy,
+                              initialValue: _sortBy,
                               decoration: InputDecoration(
                                 border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(10)),

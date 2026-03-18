@@ -5,13 +5,12 @@ class MyUser {
   String? phone;
   String? profileImage;
   bool? isActive;
-  bool? isSuperAdmin;
-  bool? isControlAcc;
   String? lastModifiedDateTime;
-  String? createdDateTime;
   int? lastModifiedUserID;
+  String? createdDateTime;
   int? createdUserID;
-  List<String> accessRights = [];
+  int? controlAccountID;
+  int? controlAccount;
 
   MyUser({
     this.userID,
@@ -20,16 +19,14 @@ class MyUser {
     this.phone,
     this.profileImage,
     this.isActive,
-    this.isSuperAdmin,
-    this.isControlAcc,
     this.lastModifiedDateTime,
-    this.createdDateTime,
     this.lastModifiedUserID,
+    this.createdDateTime,
     this.createdUserID,
-    this.accessRights = const [],
+    this.controlAccountID,
+    this.controlAccount,
   });
 
-  // Convert JSON to MyUser object
   factory MyUser.fromJson(Map<String, dynamic> json) {
     return MyUser(
       userID: json['userID'] as int?,
@@ -38,17 +35,15 @@ class MyUser {
       phone: json['phone'] as String?,
       profileImage: json['profileImage'] as String?,
       isActive: json['isActive'] as bool?,
-      isSuperAdmin: json['isSuperAdmin'] as bool?,
-      isControlAcc: json['isControlAcc'] as bool?,
       lastModifiedDateTime: json['lastModifiedDateTime'] as String?,
-      createdDateTime: json['createdDateTime'] as String?,
       lastModifiedUserID: json['lastModifiedUserID'] as int?,
+      createdDateTime: json['createdDateTime'] as String?,
       createdUserID: json['createdUserID'] as int?,
-      accessRights: List<String>.from(json['accessRights'] as List<dynamic>? ?? []),
+      controlAccountID: json['controlAccountID'] as int?,
+      controlAccount: json['controlAccount'] as int?,
     );
   }
 
-  // Convert MyUser object to JSON
   Map<String, dynamic> toJson() {
     return {
       'userID': userID,
@@ -57,13 +52,13 @@ class MyUser {
       'phone': phone,
       'profileImage': profileImage,
       'isActive': isActive,
-      'isSuperAdmin': isSuperAdmin,
-      'isControlAcc': isControlAcc,
       'lastModifiedDateTime': lastModifiedDateTime,
-      'createdDateTime': createdDateTime,
       'lastModifiedUserID': lastModifiedUserID,
+      'createdDateTime': createdDateTime,
       'createdUserID': createdUserID,
-      'accessRights': accessRights,
+      'controlAccountID': controlAccountID,
+      'controlAccount': controlAccount,
     };
   }
+
 }

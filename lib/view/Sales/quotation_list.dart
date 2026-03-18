@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
 import '../../api/api_endpoints.dart';
 import '../../api/base_client.dart';
 import '../../common/dots_loading.dart';
 import '../../common/session_manager.dart';
-import '../../models/Quotation.dart';
+import '../../models/quotation.dart';
 import 'quotation_detail.dart';
 import 'quotation_form.dart';
 
@@ -28,24 +29,29 @@ class _QuotationListPageState extends State<QuotationListPage> {
   String _companyGUID = '';
   int _userID = 0;
   String _userSessionID = '';
+  List<String> _accessRights = [];
+
+  // Settings
+  int _itemsPerPage = 20;
+
+  // Draft
+  bool _hasDraft = false;
 
   // Data
   List<QuotationListItem> _quotations = [];
   bool _isLoading = false;
-  bool _isLoadingMore = false;
   String? _error;
 
   // Pagination
   int _currentPage = 0;
+  int _totalPages = 1;
   int _totalCount = 0;
-  static const _pageSize = 20;
-  bool get _hasMore => _quotations.length < _totalCount;
 
   // Search & sort
   final _searchController = TextEditingController();
   String _searchQuery = '';
   String _sortBy = 'DocNo';
-  bool _sortAsc = true;
+  bool _sortAsc = false;
 
   // Date filter
   DateTime _fromDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
@@ -56,12 +62,11 @@ class _QuotationListPageState extends State<QuotationListPage> {
   final _scrollController = ScrollController();
 
   int get _activeFilters =>
-      (_sortBy != 'DocNo' ? 1 : 0) + (!_sortAsc ? 1 : 0);
+      (_sortBy != 'DocNo' ? 1 : 0) + (!_sortAsc ? 0 : 1);
 
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(_onScroll);
     _init();
   }
 
@@ -72,31 +77,180 @@ class _QuotationListPageState extends State<QuotationListPage> {
     super.dispose();
   }
 
-  void _onScroll() {
-    if (_scrollController.position.pixels >=
-            _scrollController.position.maxScrollExtent - 200 &&
-        !_isLoadingMore &&
-        _hasMore) {
-      _loadMore();
-    }
+  Future<void> _init() async {
+    final results = await Future.wait([
+      SessionManager.getApiKey(),
+      SessionManager.getCompanyGUID(),
+      SessionManager.getUserID(),
+      SessionManager.getUserSessionID(),
+      SessionManager.getUserAccessRight(),
+      SessionManager.getItemsPerPage(),
+    ]);
+    _apiKey = results[0] as String;
+    _companyGUID = results[1] as String;
+    _userID = results[2] as int;
+    _userSessionID = results[3] as String;
+    _accessRights = results[4] as List<String>;
+    _itemsPerPage = results[5] as int;
+    await Future.wait([
+      _fetchQuotations(page: 0),
+      _refreshDraftFlag(),
+    ]);
   }
 
-  Future<void> _init() async {
+  Future<void> _refreshDraftFlag() async {
+    final has = await SessionManager.hasQuotationDraft();
+    if (mounted) setState(() => _hasDraft = has);
+  }
+
+  bool _hasAccess(String right) => _accessRights.contains(right);
+
+  void _showNoAccessDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Access Denied'),
+        content: const Text('You do not have the access right to perform this action.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<bool?> _confirmDelete(String docNo) {
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          contentPadding: EdgeInsets.zero,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 20),
+              // Icon
+              Container(
+                width: 80,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.10),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.delete_outline_rounded,
+                    size: 32, color: Colors.red),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Delete Quotation',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  'Are you sure you want to delete\n$docNo?',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: cs.onSurface.withValues(alpha: 0.6),
+                      height: 1.5),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Divider(height: 1, color: cs.outline.withValues(alpha: 0.15)),
+              IntrinsicHeight(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.only(
+                                bottomLeft: Radius.circular(20)),
+                          ),
+                        ),
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: Text('Cancel',
+                            style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: cs.onSurface.withValues(alpha: 0.6))),
+                      ),
+                    ),
+                    VerticalDivider(
+                        width: 1,
+                        color: cs.outline.withValues(alpha: 0.15)),
+                    Expanded(
+                      child: TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.only(
+                                bottomRight: Radius.circular(20)),
+                          ),
+                        ),
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('Delete',
+                            style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.red)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<bool> _deleteQuotation(int docID) async {
     _apiKey = await SessionManager.getApiKey();
     _companyGUID = await SessionManager.getCompanyGUID();
-    _userID = await SessionManager.getUserID();
     _userSessionID = await SessionManager.getUserSessionID();
-    await _fetchQuotations(reset: true);
+    try {
+      await BaseClient.post(
+        ApiEndpoints.removeQuotation,
+        body: {
+          'apiKey': _apiKey,
+          'companyGUID': _companyGUID,
+          'userID': _userID,
+          'userSessionID': _userSessionID,
+          'docID': docID,
+        },
+      );
+      return true;
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text('Failed to delete: $e'),
+            behavior: SnackBarBehavior.floating,
+          ));
+      }
+      return false;
+    }
   }
 
-  Future<void> _fetchQuotations({required bool reset}) async {
-    if (reset) {
-      setState(() {
-        _isLoading = true;
-        _error = null;
-        _currentPage = 0;
-      });
-    }
+  Future<void> _fetchQuotations({required int page}) async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
+    if (_isLoading) return;
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
     try {
       final response = await BaseClient.post(
         ApiEndpoints.getQuotationList,
@@ -108,57 +262,43 @@ class _QuotationListPageState extends State<QuotationListPage> {
           'isFilterByCreatedDateTime': false,
           'fromDate': _fromDate.toIso8601String(),
           'toDate': _toDate.add(const Duration(days: 1)).toIso8601String(),
-          'pageIndex': reset ? 0 : _currentPage,
-          'pageSize': _pageSize,
+          'pageIndex': page,
+          'pageSize': _itemsPerPage,
           'sortBy': _sortBy,
           'isSortByAscending': _sortAsc,
           'searchTerm': _searchQuery.isEmpty ? null : _searchQuery,
         },
       );
 
-      final result =
-          QuotationResponse.fromJson(response as Map<String, dynamic>);
-      final newItems = result.data ?? [];
+      final result = QuotationResponse.fromJson(response as Map<String, dynamic>);
+      final items = result.data ?? [];
+      final totalRecord = result.pagination?.totalRecord ?? items.length;
+      final pageSize = result.pagination?.pageSize ?? _itemsPerPage;
 
-      setState(() {
-        if (reset) {
-          _quotations = newItems;
-        } else {
-          _quotations = [..._quotations, ...newItems];
-        }
-        _totalCount = result.pagination?.totalRecord ?? newItems.length;
-        _isLoading = false;
-        _isLoadingMore = false;
-      });
+      if (mounted) {
+        setState(() {
+          _quotations = items;
+          _currentPage = page;
+          _totalCount = totalRecord;
+          _totalPages = pageSize > 0 ? (totalRecord / pageSize).ceil() : 1;
+          if (_totalPages < 1) _totalPages = 1;
+        });
+        if (_scrollController.hasClients) _scrollController.jumpTo(0);
+      }
     } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _isLoadingMore = false;
-        _error = e.toString();
-      });
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _loadMore() async {
-    setState(() {
-      _isLoadingMore = true;
-      _currentPage++;
-    });
-    await _fetchQuotations(reset: false);
-  }
-
-  Future<void> _onRefresh() => _fetchQuotations(reset: true);
+  Future<void> _onRefresh() => _fetchQuotations(page: 0);
 
   void _onSearchSubmit(String value) {
     setState(() => _searchQuery = value.trim());
-    _fetchQuotations(reset: true);
+    _fetchQuotations(page: 0);
   }
 
-  void _clearSearch() {
-    _searchController.clear();
-    setState(() => _searchQuery = '');
-    _fetchQuotations(reset: true);
-  }
 
   Future<void> _pickFromDate() async {
     final picked = await showDatePicker(
@@ -169,7 +309,7 @@ class _QuotationListPageState extends State<QuotationListPage> {
     );
     if (picked != null) {
       setState(() => _fromDate = picked);
-      _fetchQuotations(reset: true);
+      _fetchQuotations(page: 0);
     }
   }
 
@@ -182,7 +322,7 @@ class _QuotationListPageState extends State<QuotationListPage> {
     );
     if (picked != null) {
       setState(() => _toDate = picked);
-      _fetchQuotations(reset: true);
+      _fetchQuotations(page: 0);
     }
   }
 
@@ -199,14 +339,14 @@ class _QuotationListPageState extends State<QuotationListPage> {
             _sortBy = sortBy;
             _sortAsc = sortAsc;
           });
-          _fetchQuotations(reset: true);
+          _fetchQuotations(page: 0);
         },
         onReset: () {
           setState(() {
             _sortBy = 'DocNo';
             _sortAsc = true;
           });
-          _fetchQuotations(reset: true);
+          _fetchQuotations(page: 0);
         },
       ),
     );
@@ -225,12 +365,17 @@ class _QuotationListPageState extends State<QuotationListPage> {
             icon: const Icon(Icons.add),
             tooltip: 'New Quotation',
             onPressed: () async {
+              if (!_hasAccess('QUOTATION_ADD')) {
+                _showNoAccessDialog();
+                return;
+              }
               final created = await Navigator.push<bool>(
                 context,
                 MaterialPageRoute(
                     builder: (_) => const QuotationFormPage()),
               );
-              if (created == true) _fetchQuotations(reset: true);
+              if (created == true) _fetchQuotations(page: 0);
+              _refreshDraftFlag();
             },
           ),
         ],
@@ -259,6 +404,7 @@ class _QuotationListPageState extends State<QuotationListPage> {
                   ],
                 ),
               ),
+              SizedBox(height: 3),
               // Search + filter row
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
@@ -272,16 +418,18 @@ class _QuotationListPageState extends State<QuotationListPage> {
                         onChanged: (v) => setState(() {}),
                         decoration: InputDecoration(
                           hintText: 'Search quotations...',
-                          prefixIcon: const Icon(Icons.search, size: 20),
                           suffixIcon: _searchController.text.isNotEmpty
                               ? IconButton(
                                   icon: const Icon(Icons.clear, size: 18),
-                                  onPressed: _clearSearch,
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    setState(() => _searchQuery = '');
+                                    _fetchQuotations(page: 0);
+                                  },
                                 )
                               : null,
                           isDense: true,
-                          contentPadding:
-                              const EdgeInsets.symmetric(vertical: 10),
+                          contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                             borderSide: BorderSide.none,
@@ -291,13 +439,27 @@ class _QuotationListPageState extends State<QuotationListPage> {
                       ),
                     ),
                     const SizedBox(width: 8),
+                    // Search button
+                    Material(
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(12),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () => _onSearchSubmit(_searchController.text),
+                        child: const SizedBox(
+                          width: 44,
+                          height: 44,
+                          child: Icon(Icons.search, size: 20),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // Filter button
                     Stack(
                       alignment: Alignment.center,
                       children: [
                         Material(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surfaceContainerHighest,
+                          color: Theme.of(context).colorScheme.surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(12),
                           child: InkWell(
                             borderRadius: BorderRadius.circular(12),
@@ -328,11 +490,11 @@ class _QuotationListPageState extends State<QuotationListPage> {
                                       color: Colors.white,
                                       fontWeight: FontWeight.bold),
                                 ),
+                                ),
                               ),
                             ),
-                          ),
-                      ],
-                    ),
+                        ],
+                      ),
                   ],
                 ),
               ),
@@ -347,36 +509,175 @@ class _QuotationListPageState extends State<QuotationListPage> {
   Widget _buildBody() {
     if (_isLoading) return const Center(child: DotsLoading());
     if (_error != null) return _buildError();
-    if (_quotations.isEmpty) return _buildEmpty();
-    return _buildList();
+    final primary = Theme.of(context).colorScheme.primary;
+    final start = _currentPage * _itemsPerPage + 1;
+    final end = ((_currentPage + 1) * _itemsPerPage).clamp(0, _totalCount);
+    return Column(
+      children: [
+        if (_hasDraft) _DraftBanner(
+          onContinue: () async {
+            await Navigator.push<bool>(
+              context,
+              MaterialPageRoute(builder: (_) => const QuotationFormPage()),
+            );
+            _fetchQuotations(page: 0);
+            _refreshDraftFlag();
+          },
+          onDiscard: () async {
+            await SessionManager.clearQuotationDraft();
+            setState(() => _hasDraft = false);
+          },
+        ),
+        if (_quotations.isEmpty)
+          Expanded(child: _buildEmpty())
+        else
+          Expanded(child: _buildList(start: start, end: end)),
+        _PaginationBar(
+          currentPage: _currentPage,
+          totalPages: _totalPages,
+          isLoading: _isLoading,
+          primary: primary,
+          onPrev: _currentPage > 0
+              ? () => _fetchQuotations(page: _currentPage - 1)
+              : null,
+          onNext: _currentPage < _totalPages - 1
+              ? () => _fetchQuotations(page: _currentPage + 1)
+              : null,
+        ),
+      ],
+    );
   }
 
-  Widget _buildList() {
+  Future<void> _onEditTap(QuotationListItem q) async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
+    if (!_hasAccess('QUOTATION_EDIT')) {
+      _showNoAccessDialog();
+      return;
+    }
+    QuotationDoc? doc;
+    try {
+      final json = await BaseClient.post(
+        ApiEndpoints.getQuotation,
+        body: {
+          'apiKey': _apiKey,
+          'companyGUID': _companyGUID,
+          'userID': _userID,
+          'userSessionID': _userSessionID,
+          'docID': q.docID,
+        },
+      );
+      doc = QuotationDoc.fromJson(json as Map<String, dynamic>);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text('Failed to load quotation: $e'),
+            behavior: SnackBarBehavior.floating,
+          ));
+      }
+      return;
+    }
+    if (!mounted) return;
+    final updated = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => QuotationFormPage(initialDoc: doc),
+      ),
+    );
+    if (updated == true && mounted) _fetchQuotations(page: 0);
+  }
+
+  Future<void> _onDeleteTap(QuotationListItem q) async {
+    if (!_hasAccess('QUOTATION_DELETE')) {
+      _showNoAccessDialog();
+      return;
+    }
+    final confirmed = await _confirmDelete(q.docNo);
+    if (confirmed != true) return;
+    final ok = await _deleteQuotation(q.docID);
+    if (ok && mounted) {
+      setState(() => _quotations.removeWhere((e) => e.docID == q.docID));
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+          content: Text('Quotation deleted'),
+          behavior: SnackBarBehavior.floating,
+        ));
+    }
+  }
+
+  Widget _buildList({required int start, required int end}) {
     return RefreshIndicator(
       onRefresh: _onRefresh,
-      child: ListView.builder(
+      child: SlidableAutoCloseBehavior(
+        child: ListView.builder(
         controller: _scrollController,
-        itemCount: _quotations.length + (_isLoadingMore ? 1 : 0),
+        itemCount: _quotations.length + 1,
         itemBuilder: (context, i) {
           if (i == _quotations.length) {
-            return const Padding(
-              padding: EdgeInsets.all(24),
-              child: Center(child: DotsLoading()),
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              child: Center(
+                child: Text(
+                  'Showing $start–$end of $_totalCount records',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                  ),
+                ),
+              ),
             );
           }
           final q = _quotations[i];
-          return _QuotationTile(
-            quotation: q,
-            amtFmt: _amtFmt,
-            dateFmt: _dateFmt,
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => QuotationDetailPage(docID: q.docID),
+          return Slidable(
+            key: ValueKey(q.docID),
+            endActionPane: ActionPane(
+              motion: const DrawerMotion(),
+              extentRatio: 0.48,
+              children: [
+                CustomSlidableAction(
+                  onPressed: (_) => _onEditTap(q),
+                  backgroundColor: const Color(0xFF1565C0).withValues(alpha: 0.12),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.edit_outlined, size: 26, color: Color(0xFF1565C0)),
+                      SizedBox(height: 4),
+                      Text('Edit', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1565C0))),
+                    ],
+                  ),
+                ),
+                CustomSlidableAction(
+                  onPressed: (_) => _onDeleteTap(q),
+                  backgroundColor: Colors.red.withValues(alpha: 0.12),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.delete_outline, size: 26, color: Colors.red),
+                      SizedBox(height: 4),
+                      Text('Delete', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.red)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            child: _QuotationTile(
+              quotation: q,
+              amtFmt: _amtFmt,
+              dateFmt: _dateFmt,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => QuotationDetailPage(docID: q.docID),
+                ),
               ),
             ),
           );
         },
+      ),
       ),
     );
   }
@@ -409,7 +710,7 @@ class _QuotationListPageState extends State<QuotationListPage> {
                         .withValues(alpha: 0.4))),
             const SizedBox(height: 16),
             FilledButton.icon(
-              onPressed: () => _fetchQuotations(reset: true),
+              onPressed: () => _fetchQuotations(page: 0),
               icon: const Icon(Icons.refresh),
               label: const Text('Retry'),
             ),
@@ -485,7 +786,7 @@ class _DatePill extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                fontSize: 11,
+                fontSize: 13,
                 fontWeight: FontWeight.w500,
                 color: primary.withValues(alpha: 0.6),
               ),
@@ -495,7 +796,7 @@ class _DatePill extends StatelessWidget {
               child: Text(
                 date,
                 style: TextStyle(
-                  fontSize: 13,
+                  fontSize: 15,
                   fontWeight: FontWeight.w600,
                   color: primary,
                 ),
@@ -530,7 +831,7 @@ class _QuotationTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
     final muted =
-        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45);
+        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.65);
 
     DateTime? docDate;
     try {
@@ -591,8 +892,6 @@ class _QuotationTile extends StatelessWidget {
                       const SizedBox(width: 6),
                       if (quotation.isVoid) _VoidBadge(),
                       const Spacer(),
-                      Icon(Icons.calendar_today_outlined, size: 11, color: muted),
-                      const SizedBox(width: 3),
                       Text(
                         docDate != null ? dateFmt.format(docDate) : quotation.docDate,
                         style: TextStyle(fontSize: 11, color: muted),
@@ -635,6 +934,138 @@ class _QuotationTile extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Pagination bar
+// ─────────────────────────────────────────────────────────────────────
+
+class _DraftBanner extends StatelessWidget {
+  final VoidCallback onContinue;
+  final VoidCallback onDiscard;
+
+  const _DraftBanner({required this.onContinue, required this.onDiscard});
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: primary.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.edit_note_rounded, size: 22, color: primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Unsaved Draft',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: primary)),
+                Text('You have a quotation in progress.',
+                    style: TextStyle(
+                        fontSize: 11,
+                        color: primary.withValues(alpha: 0.7))),
+              ],
+            ),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: primary,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            onPressed: onDiscard,
+            child: const Text('Discard', style: TextStyle(fontSize: 12)),
+          ),
+          const SizedBox(width: 4),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+            ),
+            onPressed: onContinue,
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PaginationBar extends StatelessWidget {
+  final int currentPage;
+  final int totalPages;
+  final bool isLoading;
+  final Color primary;
+  final VoidCallback? onPrev;
+  final VoidCallback? onNext;
+
+  const _PaginationBar({
+    required this.currentPage,
+    required this.totalPages,
+    required this.isLoading,
+    required this.primary,
+    required this.onPrev,
+    required this.onNext,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(
+            color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.15),
+          ),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.chevron_left),
+            onPressed: isLoading ? null : onPrev,
+            style: IconButton.styleFrom(
+              foregroundColor: onPrev != null ? primary : null,
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (isLoading)
+            const DotsLoading(dotSize: 6)
+          else
+            Text(
+              'Page ${currentPage + 1} of $totalPages',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: primary,
+              ),
+            ),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.chevron_right),
+            onPressed: isLoading ? null : onNext,
+            style: IconButton.styleFrom(
+              foregroundColor: onNext != null ? primary : null,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -754,7 +1185,7 @@ class _SortSheetState extends State<_SortSheet> {
                           color: primary)),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
-                    value: _sortBy,
+                    initialValue: _sortBy,
                     decoration: InputDecoration(
                       border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10)),

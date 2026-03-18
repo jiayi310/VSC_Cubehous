@@ -5,7 +5,7 @@ import '../../../common/dots_loading.dart';
 import '../../../common/session_manager.dart';
 import '../../../models/customer.dart';
 import '../../../models/customer_type.dart';
-import '../../../models/SalesAgent.dart';
+import '../../../models/sales_agent.dart';
 
 class CustomerFormPage extends StatefulWidget {
   /// Null = create mode, non-null = edit mode
@@ -116,6 +116,9 @@ class _CustomerFormPageState extends State<CustomerFormPage> {
   }
 
   Future<void> _loadDropdowns() async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
     try {
       final body = {'apiKey': _apiKey, 'companyGUID': _companyGUID,'userID': _userID,'userSessionID': _userSessionID,};
       final results = await Future.wait([
@@ -150,6 +153,9 @@ class _CustomerFormPageState extends State<CustomerFormPage> {
   }
 
   Future<void> _save() async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isSaving = true);
     try {
@@ -228,17 +234,11 @@ class _CustomerFormPageState extends State<CustomerFormPage> {
         ),
         centerTitle: true,
         actions: [
-          if (_isSaving)
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: DotsLoading(dotSize: 6),
-            )
-          else
-            IconButton(
-              icon: const Icon(Icons.save),
-              tooltip: 'Save',
-              onPressed: _save,
-            ),
+          IconButton(
+            icon: const Icon(Icons.save_rounded),
+            tooltip: 'Save',
+            onPressed: _isSaving ? null : _save,
+          ),
         ],
       ),
       body: _loadingDropdowns
@@ -384,11 +384,9 @@ class _CustomerFormPageState extends State<CustomerFormPage> {
                       height: 50,
                       child: FilledButton(
                         onPressed: _isSaving ? null : _save,
-                        child: Text(
-                          _isEdit ? 'Save Changes' : 'Create Customer',
-                          style: const TextStyle(
-                              fontSize: 15, fontWeight: FontWeight.w700),
-                        ),
+                        child: _isSaving
+                            ? const DotsLoading(dotSize: 6)
+                            : const Icon(Icons.save_rounded, size: 22),
                       ),
                     ),
                   ],
@@ -488,62 +486,63 @@ class _CustomerFormPageState extends State<CustomerFormPage> {
     TextInputType keyboard = TextInputType.text,
     IconData? prefixIcon,
   }) {
-    return TextFormField(
-      controller: controller,
-      readOnly: readOnly,
-      keyboardType: keyboard,
-      style: const TextStyle(fontSize: 14),
-      decoration: InputDecoration(
-        labelText: label,
-        hintText: hint,
-        hintStyle: TextStyle(
-          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.25),
-          fontSize: 14,
-        ),
-        prefixIcon: prefixIcon != null ? Icon(prefixIcon, size: 18) : null,
-        filled: true,
-        isDense: true,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(
-            color: Theme.of(context).colorScheme.primary,
-            width: 1.5,
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          required ? '$label *' : label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: cs.onSurface.withValues(alpha: 0.6),
           ),
         ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(
-            color: Theme.of(context).colorScheme.error,
+        const SizedBox(height: 6),
+        TextFormField(
+          controller: controller,
+          readOnly: readOnly,
+          keyboardType: keyboard,
+          style: const TextStyle(fontSize: 14),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: TextStyle(
+              color: cs.onSurface.withValues(alpha: 0.25),
+              fontSize: 14,
+            ),
+            prefixIcon: prefixIcon != null ? Icon(prefixIcon, size: 18) : null,
+            filled: true,
+            isDense: true,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: cs.primary, width: 1.5),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: cs.error),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: cs.error, width: 1.5),
+            ),
+            suffixIcon: readOnly
+                ? Icon(Icons.lock_outline, size: 16,
+                    color: cs.onSurface.withValues(alpha: 0.3))
+                : null,
           ),
+          validator: required
+              ? (v) => (v == null || v.trim().isEmpty) ? '$label is required' : null
+              : null,
         ),
-        focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(
-            color: Theme.of(context).colorScheme.error,
-            width: 1.5,
-          ),
-        ),
-        suffixIcon: readOnly
-            ? Icon(Icons.lock_outline,
-                size: 16,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.3))
-            : null,
-      ),
-      validator: required
-          ? (v) =>
-              (v == null || v.trim().isEmpty) ? '$label is required' : null
-          : null,
+      ],
     );
   }
 
@@ -553,59 +552,58 @@ class _CustomerFormPageState extends State<CustomerFormPage> {
     required List<DropdownMenuItem<T>> items,
     required ValueChanged<T?> onChanged,
   }) {
-    return DropdownButtonFormField<T>(
-      value: value,
-      isExpanded: true,
-      decoration: InputDecoration(
-        labelText: label,
-        filled: true,
-        isDense: true,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(
-            color: Theme.of(context).colorScheme.primary,
-            width: 1.5,
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: cs.onSurface.withValues(alpha: 0.6),
           ),
         ),
-      ),
-      items: [
-        DropdownMenuItem<T>(
-          value: null,
-          child: Text(
-            '—',
-            style: TextStyle(
-              color: Theme.of(context)
-                  .colorScheme
-                  .onSurface
-                  .withValues(alpha: 0.35),
-              fontSize: 14,
+        const SizedBox(height: 6),
+        DropdownButtonFormField<T>(
+          initialValue: value,
+          isExpanded: true,
+          decoration: InputDecoration(
+            filled: true,
+            isDense: true,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: cs.primary, width: 1.5),
             ),
           ),
+          items: [
+            DropdownMenuItem<T>(
+              value: null,
+              child: Text('—',
+                  style: TextStyle(
+                      color: cs.onSurface.withValues(alpha: 0.35),
+                      fontSize: 14)),
+            ),
+            ...items.map((item) => DropdownMenuItem<T>(
+                  value: item.value,
+                  child: DefaultTextStyle.merge(
+                    style: TextStyle(fontSize: 14, color: cs.onSurface),
+                    child: item.child,
+                  ),
+                )),
+          ],
+          onChanged: onChanged,
+          style: TextStyle(fontSize: 14, color: cs.onSurface),
         ),
-        ...items.map((item) => DropdownMenuItem<T>(
-              value: item.value,
-              child: DefaultTextStyle.merge(
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Theme.of(context).colorScheme.onSurface,
-                ),
-                child: item.child,
-              ),
-            )),
       ],
-      onChanged: onChanged,
-      style: TextStyle(
-        fontSize: 14,
-        color: Theme.of(context).colorScheme.onSurface,
-      ),
     );
   }
 

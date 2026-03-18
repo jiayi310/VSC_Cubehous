@@ -1,4 +1,4 @@
-import 'Pagination.dart';
+import 'pagination.dart';
 
 class Stock {
   final int stockID;

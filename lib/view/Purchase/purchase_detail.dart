@@ -1,27 +1,24 @@
-import 'package:cubehous/common/my_color.dart';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
-import 'dart:io';
-import 'dart:convert';
+import 'package:path_provider/path_provider.dart';
 import '../../api/api_endpoints.dart';
 import '../../api/base_client.dart';
 import '../../common/dots_loading.dart';
+import '../../common/my_color.dart';
 import '../../common/session_manager.dart';
-import '../../models/quotation.dart';
-import 'quotation_form.dart';
-import 'sales_form.dart';
+import '../../models/purchase_order.dart';
 
-class QuotationDetailPage extends StatefulWidget {
+class PurchaseDetailPage extends StatefulWidget {
   final int docID;
-  const QuotationDetailPage({super.key, required this.docID});
+  const PurchaseDetailPage({super.key, required this.docID});
 
   @override
-  State<QuotationDetailPage> createState() => _QuotationDetailPageState();
+  State<PurchaseDetailPage> createState() => _PurchaseDetailPageState();
 }
 
-class _QuotationDetailPageState extends State<QuotationDetailPage>
+class _PurchaseDetailPageState extends State<PurchaseDetailPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
 
@@ -31,12 +28,10 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
   String _userSessionID = '';
   List<String> _accessRights = [];
 
-  QuotationDoc? _doc;
+  PurchaseDoc? _doc;
   bool _loading = true;
   bool _pdfLoading = false;
   String? _error;
-  String _imageMode = 'show';
-  Map<int, String?> _stockImages = {};
 
   final _amtFmt = NumberFormat('#,##0.00');
   final _qtyFmt = NumberFormat('#,##0.##');
@@ -62,45 +57,13 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
       SessionManager.getUserID(),
       SessionManager.getUserSessionID(),
       SessionManager.getUserAccessRight(),
-      SessionManager.getImageMode(),
     ]);
     _apiKey = results[0] as String;
     _companyGUID = results[1] as String;
     _userID = results[2] as int;
     _userSessionID = results[3] as String;
     _accessRights = results[4] as List<String>;
-    _imageMode = results[5] as String;
     await _loadDoc();
-    if (_imageMode == 'show') _loadStockImages();
-  }
-
-  Future<void> _loadStockImages() async {
-    _apiKey = await SessionManager.getApiKey();
-    _companyGUID = await SessionManager.getCompanyGUID();
-    _userSessionID = await SessionManager.getUserSessionID();
-    if (_doc == null) return;
-    final ids = _doc!.quotationDetails.map((l) => l.stockID).toSet().toList();
-    if (ids.isEmpty) return;
-    final futures = ids.map((id) => BaseClient.post(
-          ApiEndpoints.getStock,
-          body: {
-            'apiKey': _apiKey,
-            'companyGUID': _companyGUID,
-            'userID': _userID,
-            'userSessionID': _userSessionID,
-            'stockID': id,
-          },
-        ));
-    final results = await Future.wait(futures, eagerError: false);
-    final images = <int, String?>{};
-    for (var i = 0; i < ids.length; i++) {
-      try {
-        images[ids[i]] = (results[i] as Map<String, dynamic>)['image'] as String?;
-      } catch (_) {
-        images[ids[i]] = null;
-      }
-    }
-    if (mounted) setState(() => _stockImages = images);
   }
 
   void _showNoAccessDialog() {
@@ -108,7 +71,8 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Access Denied'),
-        content: const Text('You do not have the access right to perform this action.'),
+        content: const Text(
+            'You do not have the access right to perform this action.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -120,13 +84,10 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
   }
 
   Future<void> _downloadPdf() async {
-    _apiKey = await SessionManager.getApiKey();
-    _companyGUID = await SessionManager.getCompanyGUID();
-    _userSessionID = await SessionManager.getUserSessionID();
     setState(() => _pdfLoading = true);
     try {
       final bytes = await BaseClient.postBytes(
-        ApiEndpoints.getQuotationReport,
+        ApiEndpoints.getPurchaseReport,
         body: {
           'apiKey': _apiKey,
           'companyGUID': _companyGUID,
@@ -138,13 +99,16 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
 
       Directory dir;
       if (Platform.isAndroid) {
-        dir = (await getExternalStorageDirectory()) ?? await getTemporaryDirectory();
+        dir = (await getExternalStorageDirectory()) ??
+            await getTemporaryDirectory();
       } else {
         dir = await getApplicationDocumentsDirectory();
       }
 
-      final timestamp = DateFormat('yyyyMMddHHmmss').format(DateTime.now());
-      final fileName = '${timestamp}_${_doc!.docNo.replaceAll('/', '-')}.pdf';
+      final timestamp =
+          DateFormat('yyyyMMddHHmmss').format(DateTime.now());
+      final fileName =
+          '${timestamp}_${_doc!.docNo.replaceAll('/', '-')}.pdf';
       final file = File('${dir.path}/$fileName');
       await file.writeAsBytes(bytes);
       await OpenFilex.open(file.path);
@@ -163,16 +127,13 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
   }
 
   Future<void> _loadDoc() async {
-    _apiKey = await SessionManager.getApiKey();
-    _companyGUID = await SessionManager.getCompanyGUID();
-    _userSessionID = await SessionManager.getUserSessionID();
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
       final json = await BaseClient.post(
-        ApiEndpoints.getQuotation,
+        ApiEndpoints.getPurchase,
         body: {
           'apiKey': _apiKey,
           'companyGUID': _companyGUID,
@@ -182,7 +143,7 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
         },
       );
       setState(() {
-        _doc = QuotationDoc.fromJson(json as Map<String, dynamic>);
+        _doc = PurchaseDoc.fromJson(json as Map<String, dynamic>);
         _loading = false;
       });
     } catch (e) {
@@ -193,12 +154,141 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
     }
   }
 
+  Future<void> _deletePurchase() async {
+    final confirmed = await _confirmDelete(_doc!.docNo);
+    if (confirmed != true) return;
+    try {
+      await BaseClient.post(
+        ApiEndpoints.removePurchase,
+        body: {
+          'apiKey': _apiKey,
+          'companyGUID': _companyGUID,
+          'userID': _userID,
+          'userSessionID': _userSessionID,
+          'docID': widget.docID,
+        },
+      );
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text('Failed to delete: $e'),
+            behavior: SnackBarBehavior.floating,
+          ));
+      }
+    }
+  }
+
+  Future<bool?> _confirmDelete(String docNo) {
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20)),
+          contentPadding: EdgeInsets.zero,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 20),
+              Container(
+                width: 80,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.10),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.delete_outline_rounded,
+                    size: 32, color: Colors.red),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Delete Purchase Order',
+                style: TextStyle(
+                    fontSize: 17, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  'Are you sure you want to delete\n$docNo?',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: cs.onSurface.withValues(alpha: 0.6),
+                      height: 1.5),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Divider(
+                  height: 1,
+                  color: cs.outline.withValues(alpha: 0.15)),
+              IntrinsicHeight(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 16),
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.only(
+                                bottomLeft: Radius.circular(20)),
+                          ),
+                        ),
+                        onPressed: () =>
+                            Navigator.pop(ctx, false),
+                        child: Text('Cancel',
+                            style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: cs.onSurface
+                                    .withValues(alpha: 0.6))),
+                      ),
+                    ),
+                    VerticalDivider(
+                        width: 1,
+                        color: cs.outline.withValues(alpha: 0.15)),
+                    Expanded(
+                      child: TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 16),
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.only(
+                                bottomRight:
+                                    Radius.circular(20)),
+                          ),
+                        ),
+                        onPressed: () =>
+                            Navigator.pop(ctx, true),
+                        child: const Text('Delete',
+                            style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.red)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          _doc?.docNo ?? 'Quotation',
+          _doc?.docNo ?? 'Purchase Order',
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
         centerTitle: true,
@@ -208,7 +298,8 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
               padding: const EdgeInsets.only(right: 4),
               child: Center(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
                     color: Colors.red.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(6),
@@ -229,63 +320,46 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
             _pdfLoading
                 ? const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+                    child: Center(
+                        child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2))),
                   )
                 : PopupMenuButton<String>(
                     onSelected: (value) async {
                       switch (value) {
-                        case 'edit':
-                          if (!_accessRights.contains('QUOTATION_EDIT')) {
-                            _showNoAccessDialog();
-                            return;
-                          }
-                          final updated = await Navigator.push<bool>(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => QuotationFormPage(initialDoc: _doc),
-                            ),
-                          );
-                          if (updated == true && mounted) await _loadDoc();
-                        case 'transfer':
-                          if (!_accessRights.contains('QUOTATION_TRANSFERSALES')) {
-                            _showNoAccessDialog();
-                            return;
-                          }
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => SalesFormPage(fromQuotation: _doc),
-                            ),
-                          );
                         case 'pdf':
                           _downloadPdf();
+                        case 'delete':
+                          if (!_accessRights
+                              .contains('PURCHASE_DELETE')) {
+                            _showNoAccessDialog();
+                            return;
+                          }
+                          await _deletePurchase();
                       }
                     },
                     itemBuilder: (_) => [
                       const PopupMenuItem(
-                        value: 'edit',
+                        value: 'pdf',
                         child: ListTile(
-                          leading: Icon(Icons.edit_outlined),
-                          title: Text('Edit'),
+                          leading:
+                              Icon(Icons.picture_as_pdf_outlined),
+                          title: Text('Download PDF'),
                           contentPadding: EdgeInsets.zero,
                           visualDensity: VisualDensity.compact,
                         ),
                       ),
-                      if (!_doc!.isVoid)
-                        const PopupMenuItem(
-                          value: 'transfer',
-                          child: ListTile(
-                            leading: Icon(Icons.swap_horiz_rounded),
-                            title: Text('Transfer to Sales'),
-                            contentPadding: EdgeInsets.zero,
-                            visualDensity: VisualDensity.compact,
-                          ),
-                        ),
                       const PopupMenuItem(
-                        value: 'pdf',
+                        value: 'delete',
                         child: ListTile(
-                          leading: Icon(Icons.picture_as_pdf_outlined),
-                          title: Text('Download PDF'),
+                          leading: Icon(Icons.delete_outline,
+                              color: Colors.red),
+                          title: Text('Delete',
+                              style:
+                                  TextStyle(color: Colors.red)),
                           contentPadding: EdgeInsets.zero,
                           visualDensity: VisualDensity.compact,
                         ),
@@ -304,8 +378,8 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
                     iconMargin: EdgeInsets.only(bottom: 2),
                   ),
                   Tab(
-                    icon: Icon(Icons.person_outline, size: 18),
-                    text: 'Customer',
+                    icon: Icon(Icons.business_outlined, size: 18),
+                    text: 'Supplier',
                     iconMargin: EdgeInsets.only(bottom: 2),
                   ),
                   Tab(
@@ -319,11 +393,13 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
                     .colorScheme
                     .onSurface
                     .withValues(alpha: 0.35),
-                indicatorColor: Theme.of(context).colorScheme.primary,
+                indicatorColor:
+                    Theme.of(context).colorScheme.primary,
                 indicatorWeight: 2.5,
                 labelStyle: const TextStyle(
                     fontSize: 11, fontWeight: FontWeight.w600),
-                unselectedLabelStyle: const TextStyle(fontSize: 11),
+                unselectedLabelStyle:
+                    const TextStyle(fontSize: 11),
               ),
       ),
       body: _loading
@@ -339,7 +415,7 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
                         controller: _tabController,
                         children: [
                           _buildInfoTab(_doc!),
-                          _buildCustomerTab(_doc!),
+                          _buildSupplierTab(_doc!),
                           _buildItemsTab(_doc!),
                         ],
                       ),
@@ -349,18 +425,22 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
     );
   }
 
-  // ── Totals summary bar ───────────────────────────────────────────────
+  // ── Totals summary bar ────────────────────────────────────────────
 
-  Widget _buildTotalsBar(QuotationDoc doc) {
+  Widget _buildTotalsBar(PurchaseDoc doc) {
     final primary = Theme.of(context).colorScheme.primary;
     final cs = Theme.of(context).colorScheme;
     return Container(
       color: cs.surfaceContainerLow,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding:
+          const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
           Text('Total Amt',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: primary)),
+              style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: primary)),
           const Spacer(),
           Text(
             _amtFmt.format(doc.finalTotal),
@@ -376,14 +456,17 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
 
   // ── Info tab ──────────────────────────────────────────────────────
 
-  Widget _buildInfoTab(QuotationDoc doc) {
+  Widget _buildInfoTab(PurchaseDoc doc) {
     DateTime? docDate;
     try {
       docDate = DateTime.parse(doc.docDate);
     } catch (_) {}
 
     final primary = Theme.of(context).colorScheme.primary;
-    final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5);
+    final muted = Theme.of(context)
+        .colorScheme
+        .onSurface
+        .withValues(alpha: 0.5);
 
     return ListView(
       children: [
@@ -391,50 +474,126 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
         _DetailRow(label: 'Doc No', value: doc.docNo),
         _DetailRow(
             label: 'Date',
-            value: docDate != null ? _dateFmt.format(docDate) : doc.docDate),
-        _DetailRow(label: 'Sales Agent', value: doc.salesAgent!),
+            value: docDate != null
+                ? _dateFmt.format(docDate)
+                : doc.docDate),
+        // Receive status badge row
+        Container(
+          padding: const EdgeInsets.symmetric(
+              horizontal: 16, vertical: 11),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(
+                color: Theme.of(context)
+                    .colorScheme
+                    .outline
+                    .withValues(alpha: 0.08),
+              ),
+            ),
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 100,
+                child: Text(
+                  'Status',
+                  style: TextStyle(
+                      fontSize: 13, color: muted),
+                ),
+              ),
+              const Spacer(),
+              doc.isReceive
+                  ? Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.green
+                            .withValues(alpha: 0.12),
+                        borderRadius:
+                            BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        'RECEIVED',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.green,
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                    )
+                  : Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.orange
+                            .withValues(alpha: 0.12),
+                        borderRadius:
+                            BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        'PENDING',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.orange,
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                    ),
+            ],
+          ),
+        ),
         if ((doc.description ?? '').isNotEmpty)
-          _DetailRow(label: 'Description', value: doc.description!),
+          _DetailRow(
+              label: 'Description', value: doc.description!),
         if ((doc.remark ?? '').isNotEmpty)
           _DetailRow(label: 'Remark', value: doc.remark!),
-        _DetailRow(label: 'Shipping', value: doc.shippingMethodDescription!),
-        SizedBox(height: 10),
-        _SectionHeader(title: 'CUSTOMER'),
-        _DetailRow(label: 'Code', value: doc.customerCode),
-        _DetailRow(label: 'Name', value: doc.customerName),
-        SizedBox(height: 10),
+        const SizedBox(height: 10),
+        _SectionHeader(title: 'SUPPLIER'),
+        _DetailRow(label: 'Code', value: doc.supplierCode),
+        _DetailRow(label: 'Name', value: doc.supplierName),
+        const SizedBox(height: 10),
         _SectionHeader(title: 'TOTAL'),
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: const EdgeInsets.symmetric(
+              horizontal: 16, vertical: 8),
           child: Column(
             children: [
-              _PriceSummaryRow(label: 'Subtotal', value: _amtFmt.format(doc.subtotal), muted: muted),
-              Builder(builder: (_) {
-                final discAmt = doc.quotationDetails.fold(0.0, (s, l) => s + l.qty * l.unitPrice * l.discount / 100);
-                return _PriceSummaryRow(
-                  label: 'Discount',
-                  value: '- ${_amtFmt.format(discAmt)}',
-                  muted: muted,
-                  valueColor: discAmt == 0 ? muted : Mycolor.discountTextColor,
-                );
-              }),
+              _PriceSummaryRow(
+                  label: 'Subtotal',
+                  value: _amtFmt.format(doc.subtotal),
+                  muted: muted),
               if (doc.taxAmt != 0)
                 _PriceSummaryRow(
-                  label: 'Tax Amt', 
-                  value: _amtFmt.format(doc.taxAmt), 
+                  label: 'Tax Amt',
+                  value: _amtFmt.format(doc.taxAmt),
                   muted: muted,
-                  valueColor: doc.taxAmt == 0 ? muted : Mycolor.taxTextColor),
+                  valueColor: Mycolor.taxTextColor,
+                ),
               if (doc.taxableAmt != 0)
-                _PriceSummaryRow(label: 'Taxable Amt', value: _amtFmt.format(doc.taxableAmt), muted: muted, valueColor: muted),
-              
+                _PriceSummaryRow(
+                  label: 'Taxable Amt',
+                  value: _amtFmt.format(doc.taxableAmt),
+                  muted: muted,
+                  valueColor: muted,
+                ),
               const Divider(height: 20),
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                mainAxisAlignment:
+                    MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Total Amt', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: primary)),
+                  Text('Total Amt',
+                      style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: primary)),
                   Text(
                     _amtFmt.format(doc.finalTotal),
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: primary),
+                    style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: primary),
                   ),
                 ],
               ),
@@ -446,10 +605,40 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
     );
   }
 
-  // ── Items tab ────────────────────────────────────────────────────────
+  // ── Supplier tab ──────────────────────────────────────────────────
 
-  Widget _buildItemsTab(QuotationDoc doc) {
-    if (doc.quotationDetails.isEmpty) {
+  Widget _buildSupplierTab(PurchaseDoc doc) {
+    final addrLines = [
+      doc.address1,
+      doc.address2,
+      doc.address3,
+      doc.address4
+    ].where((l) => (l ?? '').isNotEmpty).cast<String>().toList();
+
+    return ListView(
+      children: [
+        _SectionHeader(title: 'SUPPLIER'),
+        _DetailRow(label: 'Code', value: doc.supplierCode),
+        _DetailRow(label: 'Name', value: doc.supplierName),
+        if (addrLines.isNotEmpty)
+          _AddressBlock(label: 'Address', lines: addrLines),
+        if ((doc.phone ?? '').isNotEmpty)
+          _DetailRow(label: 'Phone', value: doc.phone!),
+        if ((doc.fax ?? '').isNotEmpty)
+          _DetailRow(label: 'Fax', value: doc.fax!),
+        if ((doc.email ?? '').isNotEmpty)
+          _DetailRow(label: 'Email', value: doc.email!),
+        if ((doc.attention ?? '').isNotEmpty)
+          _DetailRow(label: 'Attention', value: doc.attention!),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
+  // ── Items tab ─────────────────────────────────────────────────────
+
+  Widget _buildItemsTab(PurchaseDoc doc) {
+    if (doc.purchaseDetails.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
@@ -479,59 +668,15 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
       );
     }
 
-    final primary = Theme.of(context).colorScheme.primary;
-    return _imageMode == 'show'
-        ? ListView.separated(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-            itemCount: doc.quotationDetails.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
-            itemBuilder: (_, i) => _ItemGridCard(
-              line: doc.quotationDetails[i],
-              amtFmt: _amtFmt,
-              qtyFmt: _qtyFmt,
-              primary: primary,
-              image: _stockImages[doc.quotationDetails[i].stockID],
-            ),
-          )
-        : ListView.builder(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-            itemCount: doc.quotationDetails.length,
-            itemBuilder: (_, i) => _ItemTile(
-              index: i,
-              line: doc.quotationDetails[i],
-              amtFmt: _amtFmt,
-              qtyFmt: _qtyFmt,
-            ),
-          );
-  }
-
-  // ── Customer tab ──────────────────────────────────────────────────────
-
-  Widget _buildCustomerTab(QuotationDoc doc) {
-    final billingLines = [doc.address1, doc.address2, doc.address3, doc.address4]
-        .where((l) => (l ?? '').isNotEmpty).cast<String>().toList();
-    final deliveryLines = [doc.deliverAddr1, doc.deliverAddr2, doc.deliverAddr3, doc.deliverAddr4]
-        .where((l) => (l ?? '').isNotEmpty).cast<String>().toList();
-
-    return ListView(
-      children: [
-        _SectionHeader(title: 'CUSTOMER'),
-        _DetailRow(label: 'Code', value: doc.customerCode),
-        _DetailRow(label: 'Name', value: doc.customerName),
-        if (billingLines.isNotEmpty)
-          _AddressBlock(label: 'Billing Address', lines: billingLines),
-        if (deliveryLines.isNotEmpty)
-          _AddressBlock(label: 'Delivery Address', lines: deliveryLines),
-        if ((doc.attention ?? '').isNotEmpty)
-          _DetailRow(label: 'Attention', value: doc.attention!),
-        if ((doc.phone ?? '').isNotEmpty)
-          _DetailRow(label: 'Phone', value: doc.phone!),
-        if ((doc.fax ?? '').isNotEmpty)
-          _DetailRow(label: 'Fax', value: doc.fax!),
-        if ((doc.email ?? '').isNotEmpty)
-          _DetailRow(label: 'Email', value: doc.email!),
-        const SizedBox(height: 16),
-      ],
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+      itemCount: doc.purchaseDetails.length,
+      itemBuilder: (_, i) => _ItemTile(
+        index: i,
+        line: doc.purchaseDetails[i],
+        amtFmt: _amtFmt,
+        qtyFmt: _qtyFmt,
+      ),
     );
   }
 
@@ -549,9 +694,9 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
                     .error
                     .withValues(alpha: 0.6)),
             const SizedBox(height: 14),
-            const Text('Failed to load quotation',
-                style:
-                    TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+            const Text('Failed to load purchase order',
+                style: TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             Text(_error ?? '',
                 textAlign: TextAlign.center,
@@ -580,7 +725,7 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
 
 class _ItemTile extends StatefulWidget {
   final int index;
-  final QuotationDetailLine line;
+  final PurchaseDetailLine line;
   final NumberFormat amtFmt;
   final NumberFormat qtyFmt;
 
@@ -607,13 +752,15 @@ class _ItemTileState extends State<_ItemTile> {
       children: [
         Text(label,
             style: TextStyle(
-                fontSize: 11, color: cs.onSurface.withValues(alpha: 0.5))),
+                fontSize: 11,
+                color: cs.onSurface.withValues(alpha: 0.5))),
         const Spacer(),
         Text(value,
             style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w500,
-                color: valueColor ?? cs.onSurface.withValues(alpha: 0.65))),
+                color:
+                    valueColor ?? cs.onSurface.withValues(alpha: 0.65))),
       ],
     );
   }
@@ -624,6 +771,7 @@ class _ItemTileState extends State<_ItemTile> {
     final primary = cs.primary;
     final line = widget.line;
     final fmt = widget.amtFmt;
+    final qtyFmt = widget.qtyFmt;
     final discAmt = line.qty * line.unitPrice * line.discount / 100;
 
     final badge = Container(
@@ -637,7 +785,9 @@ class _ItemTileState extends State<_ItemTile> {
         child: Text(
           '${widget.index + 1}',
           style: TextStyle(
-              fontSize: 13, fontWeight: FontWeight.w700, color: primary),
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: primary),
         ),
       ),
     );
@@ -651,7 +801,8 @@ class _ItemTileState extends State<_ItemTile> {
           decoration: BoxDecoration(
             color: (Theme.of(context).cardTheme.color ?? cs.surface)
                 .withValues(alpha: 0.5),
-            border: Border.all(color: cs.outline.withValues(alpha: 0.18)),
+            border:
+                Border.all(color: cs.outline.withValues(alpha: 0.18)),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
@@ -693,7 +844,8 @@ class _ItemTileState extends State<_ItemTile> {
                       line.description,
                       style: TextStyle(
                           fontSize: 12,
-                          color: cs.onSurface.withValues(alpha: 0.65)),
+                          color: cs.onSurface
+                              .withValues(alpha: 0.65)),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -704,39 +856,44 @@ class _ItemTileState extends State<_ItemTile> {
                         Text(line.uom,
                             style: TextStyle(
                                 fontSize: 11,
-                                color: cs.onSurface.withValues(alpha: 0.5))),
-                        if (line.discount > 0) ...[
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 5, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: Colors.orange.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              '-${_fmtNum(line.discount)}%',
-                              style: const TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.orange,
-                                  fontWeight: FontWeight.w600),
-                            ),
-                          ),
-                        ],
+                                color: cs.onSurface
+                                    .withValues(alpha: 0.5))),
                         if ((line.taxCode ?? '').isNotEmpty) ...[
                           const SizedBox(width: 6),
                           Container(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 5, vertical: 1),
                             decoration: BoxDecoration(
-                              color: Colors.teal.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(4),
+                              color: Colors.teal
+                                  .withValues(alpha: 0.1),
+                              borderRadius:
+                                  BorderRadius.circular(4),
                             ),
                             child: Text(
                               line.taxCode!,
                               style: const TextStyle(
                                   fontSize: 10,
                                   color: Colors.teal,
+                                  fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                        if (line.receiveQty > 0) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 5, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: Colors.green
+                                  .withValues(alpha: 0.1),
+                              borderRadius:
+                                  BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              'Rcvd ${qtyFmt.format(line.receiveQty)}',
+                              style: const TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.green,
                                   fontWeight: FontWeight.w600),
                             ),
                           ),
@@ -799,7 +956,13 @@ class _PriceSummaryRow extends StatelessWidget {
   final String value;
   final Color muted;
   final Color? valueColor;
-  const _PriceSummaryRow({required this.label, required this.value, required this.muted, this.valueColor});
+
+  const _PriceSummaryRow({
+    required this.label,
+    required this.value,
+    required this.muted,
+    this.valueColor,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -808,8 +971,15 @@ class _PriceSummaryRow extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: TextStyle(fontSize: 13, color: valueColor ?? muted)),
-          Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: valueColor)),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 13,
+                  color: valueColor ?? muted)),
+          Text(value,
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: valueColor)),
         ],
       ),
     );
@@ -893,8 +1063,14 @@ class _AddressBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5);
-    final borderColor = Theme.of(context).colorScheme.outline.withValues(alpha: 0.08);
+    final muted = Theme.of(context)
+        .colorScheme
+        .onSurface
+        .withValues(alpha: 0.5);
+    final borderColor = Theme.of(context)
+        .colorScheme
+        .outline
+        .withValues(alpha: 0.08);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
       decoration: BoxDecoration(
@@ -905,7 +1081,8 @@ class _AddressBlock extends StatelessWidget {
         children: [
           SizedBox(
             width: 100,
-            child: Text(label, style: TextStyle(fontSize: 13, color: muted)),
+            child: Text(label,
+                style: TextStyle(fontSize: 13, color: muted)),
           ),
           Expanded(
             child: Column(
@@ -923,241 +1100,3 @@ class _AddressBlock extends StatelessWidget {
     );
   }
 }
-
-// ─────────────────────────────────────────────────────────────────────
-// Item grid card (shown when display mode = Show Image)
-// ─────────────────────────────────────────────────────────────────────
-
-class _ItemGridCard extends StatefulWidget {
-  final QuotationDetailLine line;
-  final NumberFormat amtFmt;
-  final NumberFormat qtyFmt;
-  final Color primary;
-  final String? image;
-
-  const _ItemGridCard({
-    required this.line,
-    required this.amtFmt,
-    required this.qtyFmt,
-    required this.primary,
-    this.image,
-  });
-
-  @override
-  State<_ItemGridCard> createState() => _ItemGridCardState();
-}
-
-class _ItemGridCardState extends State<_ItemGridCard> {
-  bool _expanded = false;
-
-  String _fmtNum(double v) =>
-      v == v.truncateToDouble() ? v.toInt().toString() : v.toString();
-
-  Widget _breakdownRow(String label, String value, ColorScheme cs,
-      {Color? valueColor}) {
-    return Row(
-      children: [
-        Text(label,
-            style: TextStyle(
-                fontSize: 11, color: cs.onSurface.withValues(alpha: 0.5))),
-        const Spacer(),
-        Text(value,
-            style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: valueColor ?? cs.onSurface.withValues(alpha: 0.65))),
-      ],
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final primary = cs.primary;
-    final line = widget.line;
-    final fmt = widget.amtFmt;
-    final discAmt = line.qty * line.unitPrice * line.discount / 100;
-
-    final image = ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: SizedBox(
-        width: 50,
-        height: 50,
-        child: _ItemImage(base64: widget.image),
-      ),
-    );
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: GestureDetector(
-        onTap: () => setState(() => _expanded = !_expanded),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-          decoration: BoxDecoration(
-            color: (Theme.of(context).cardTheme.color ?? cs.surface)
-                .withValues(alpha: 0.5),
-            border: Border.all(color: cs.outline.withValues(alpha: 0.18)),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              image,
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Row 1: stock code | qty
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            line.stockCode,
-                            style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: primary),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'x ${_fmtNum(line.qty)}',
-                          style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: primary),
-                        ),
-                      ],
-                    ),
-                    // Row 2: description
-                    const SizedBox(height: 2),
-                    Text(
-                      line.description,
-                      style: TextStyle(
-                          fontSize: 12,
-                          color: cs.onSurface.withValues(alpha: 0.65)),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    // Row 3: UOM + badges | total
-                    Row(
-                      children: [
-                        Text(line.uom,
-                            style: TextStyle(
-                                fontSize: 11,
-                                color: cs.onSurface.withValues(alpha: 0.5))),
-                        if (line.discount > 0) ...[
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 5, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: Colors.orange.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              '-${_fmtNum(line.discount)}%',
-                              style: const TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.orange,
-                                  fontWeight: FontWeight.w600),
-                            ),
-                          ),
-                        ],
-                        if ((line.taxCode ?? '').isNotEmpty) ...[
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 5, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: Colors.teal.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              line.taxCode!,
-                              style: const TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.teal,
-                                  fontWeight: FontWeight.w600),
-                            ),
-                          ),
-                        ],
-                        const Spacer(),
-                        Text(
-                          fmt.format(line.total),
-                          style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w800,
-                              color: primary),
-                        ),
-                      ],
-                    ),
-                    // Expandable breakdown
-                    if (_expanded) ...[
-                      const SizedBox(height: 8),
-                      Divider(
-                          height: 1,
-                          color: cs.outline.withValues(alpha: 0.2)),
-                      const SizedBox(height: 8),
-                      _breakdownRow(
-                          'Subtotal',
-                          fmt.format(line.qty * line.unitPrice),
-                          cs),
-                      if (discAmt > 0) ...[
-                        const SizedBox(height: 3),
-                        _breakdownRow(
-                            'Discount (${_fmtNum(line.discount)}%)',
-                            '- ${fmt.format(discAmt)}',
-                            cs,
-                            valueColor: Colors.orange),
-                      ],
-                      if ((line.taxCode ?? '').isNotEmpty) ...[
-                        const SizedBox(height: 3),
-                        _breakdownRow(
-                            'Tax (${line.taxCode} ${_fmtNum(line.taxRate)}%)',
-                            '+ ${fmt.format(line.taxAmt)}',
-                            cs,
-                            valueColor: Colors.teal),
-                      ],
-                    ],
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ItemImage extends StatelessWidget {
-  final String? base64;
-  const _ItemImage({this.base64});
-
-  @override
-  Widget build(BuildContext context) {
-    if (base64 != null && base64!.isNotEmpty) {
-      try {
-        final raw = base64!.contains(',') ? base64!.split(',').last : base64!;
-        final bytes = base64Decode(raw);
-        return Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true);
-      } catch (_) {}
-    }
-    return Container(
-      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
-      child: Center(
-        child: Icon(
-          Icons.inventory_2_outlined,
-          size: 32,
-          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
-        ),
-      ),
-    );
-  }
-}
-

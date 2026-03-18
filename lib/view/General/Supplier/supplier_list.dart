@@ -3,7 +3,7 @@ import '../../../api/api_endpoints.dart';
 import '../../../api/base_client.dart';
 import '../../../common/dots_loading.dart';
 import '../../../common/session_manager.dart';
-import '../../../models/Supplier.dart';
+import '../../../models/suppplier.dart';
 import 'supplier_detail.dart';
 
 const _sortOptions = [
@@ -84,6 +84,9 @@ class _SupplierListPageState extends State<SupplierListPage> {
   }
 
   Future<void> _fetchSuppliers({required bool reset}) async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
     if (reset) {
       setState(() {
         _isLoading = true;
@@ -469,12 +472,6 @@ class _SupplierTile extends StatelessWidget {
                     icon: Icons.phone_outlined,
                     text: supplier.phone1 ?? '-',
                   ),
-
-                  // Email
-                  _IconRow(
-                    icon: Icons.email_outlined,
-                    text: supplier.email ?? '-',
-                  ),
                 ],
               ),
             ),
@@ -741,7 +738,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                             _label('Sort By', primary),
                             const SizedBox(height: 8),
                             DropdownButtonFormField<String>(
-                              value: _sortBy,
+                              initialValue: _sortBy,
                               decoration: InputDecoration(
                                 border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(10)),

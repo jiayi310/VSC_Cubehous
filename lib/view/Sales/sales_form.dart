@@ -6,10 +6,12 @@ import '../../api/base_client.dart';
 import '../../common/dots_loading.dart';
 import '../../common/session_manager.dart';
 import '../../models/customer.dart';
-import '../../models/TaxType.dart';
+import '../../models/tax_type.dart';
+import '../../models/quotation.dart';
 
 class SalesFormPage extends StatefulWidget {
-  const SalesFormPage({super.key});
+  final QuotationDoc? fromQuotation;
+  const SalesFormPage({super.key, this.fromQuotation});
 
   @override
   State<SalesFormPage> createState() => _SalesFormPageState();
@@ -67,9 +69,65 @@ class _SalesFormPageState extends State<SalesFormPage> {
     _userID = await SessionManager.getUserID();
     _userSessionID = await SessionManager.getUserSessionID();
     await _loadDropdowns();
+    if (widget.fromQuotation != null) _prefillFromQuotation();
+  }
+
+  void _prefillFromQuotation() {
+    final doc = widget.fromQuotation!;
+
+    _selectedCustomer = Customer(
+      customerID: doc.customerID,
+      customerCode: doc.customerCode,
+      name: doc.customerName,
+      name2: '',
+      address1: doc.address1,
+      address2: doc.address2,
+      address3: doc.address3,
+      address4: doc.address4,
+      deliverAddr1: doc.deliverAddr1,
+      deliverAddr2: doc.deliverAddr2,
+      deliverAddr3: doc.deliverAddr3,
+      deliverAddr4: doc.deliverAddr4,
+      attention: doc.attention,
+      phone1: doc.phone,
+      fax1: doc.fax,
+      email: doc.email,
+      priceCategory: 0,
+      customerType: '',
+      salesAgent: '',
+    );
+
+    _salesAgentCtrl.text = doc.salesAgent ?? '';
+    _descriptionCtrl.text = doc.description ?? '';
+    _remarkCtrl.text = doc.remark ?? '';
+    _shippingCtrl.text = doc.shippingMethodDescription ?? '';
+    _qtDocNoCtrl.text = doc.docNo;
+
+    for (final dtl in doc.quotationDetails) {
+      final line = _LineItem();
+      line.stockCodeCtrl.text = dtl.stockCode;
+      line.descriptionCtrl.text = dtl.description;
+      line.uomCtrl.text = dtl.uom;
+      line.qtyCtrl.text = dtl.qty.toString();
+      line.unitPriceCtrl.text = dtl.unitPrice.toString();
+      line.discountCtrl.text = dtl.discount.toString();
+      line.locationCtrl.text = dtl.location ?? '';
+      if (dtl.taxTypeID != null) {
+        line.selectedTaxType = _taxTypes.cast<TaxType?>().firstWhere(
+          (t) => t?.taxTypeID == dtl.taxTypeID,
+          orElse: () => null,
+        );
+      }
+      _lines.add(line);
+    }
+
+    setState(() {});
   }
 
   Future<void> _loadDropdowns() async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
     try {
       final body = {
         'apiKey': _apiKey,
@@ -99,6 +157,9 @@ class _SalesFormPageState extends State<SalesFormPage> {
   // ── Save ──────────────────────────────────────────────────────────────
 
   Future<void> _save() async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
     if (_selectedCustomer == null) {
       _showError('Please select a customer.');
       return;
@@ -259,8 +320,12 @@ class _SalesFormPageState extends State<SalesFormPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('New Sales Order',
-            style: TextStyle(fontWeight: FontWeight.w600)),
+        title: Text(
+          widget.fromQuotation != null
+              ? 'Convert to Sales Order'
+              : 'New Sales Order',
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
         centerTitle: true,
         actions: [
           if (_isSaving)
@@ -834,7 +899,7 @@ class _LineItemCardState extends State<_LineItemCard> {
     required ValueChanged<T?> onChanged,
   }) {
     return DropdownButtonFormField<T>(
-      value: value,
+      initialValue: value,
       isExpanded: true,
       style: const TextStyle(fontSize: 13),
       decoration: InputDecoration(

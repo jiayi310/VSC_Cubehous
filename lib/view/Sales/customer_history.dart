@@ -5,7 +5,7 @@ import '../../api/base_client.dart';
 import '../../common/dots_loading.dart';
 import '../../common/session_manager.dart';
 import '../../models/customer.dart';
-import '../../models/Sales.dart';
+import '../../models/sales.dart';
 
 class CustomerHistoryPage extends StatefulWidget {
   const CustomerHistoryPage({super.key});
@@ -75,6 +75,9 @@ class _CustomerHistoryPageState extends State<CustomerHistoryPage> {
   }
 
   Future<void> _fetchHistory({required bool reset}) async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
     if (_selectedCustomer == null) return;
     if (reset) {
       setState(() {

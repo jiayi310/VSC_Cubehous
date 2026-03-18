@@ -3,6 +3,8 @@ import 'package:cubehous/view/General/Customer/customer_list.dart';
 import 'package:cubehous/view/General/Location/location_list.dart';
 import 'package:cubehous/view/General/Supplier/supplier_list.dart';
 import 'package:cubehous/view/Sales/collection_list.dart';
+import 'package:cubehous/view/Purchase/purchase_list.dart';
+import 'package:cubehous/view/Warehouse/stock_take_list.dart';
 import 'package:cubehous/view/Sales/quotation_list.dart';
 import 'package:cubehous/view/Sales/sales_list.dart';
 import 'package:flutter/material.dart';
@@ -21,13 +23,16 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin {
-  late final TabController _tabController;
+class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
+  late TabController _tabController;
 
   String _username = '';
   String _companyName = '';
   String _profileImage = '';
   bool _userIsActive = true;
+  bool _hasSales = true;
+  bool _hasWms = true;
+  List<String> _accessRights = [];
 
   @override
   void initState() {
@@ -43,16 +48,40 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   }
 
   Future<void> _loadSession() async {
-    final username = await SessionManager.getUsername();
-    final companyName = await SessionManager.getCompanyName();
-    final profileImage = await SessionManager.getProfileImage();
-    final userIsActive = await SessionManager.getUserIsActive();
+    final results = await Future.wait([
+      SessionManager.getUsername(),
+      SessionManager.getCompanyName(),
+      SessionManager.getProfileImage(),
+      SessionManager.getUserIsActive(),
+      SessionManager.getCompanyModuleIdList(),
+      SessionManager.getUserAccessRight(),
+    ]);
+    final username = results[0] as String;
+    final companyName = results[1] as String;
+    final profileImage = results[2] as String;
+    final userIsActive = results[3] as bool;
+    final modules = results[4] as List<String>;
+    final accessRights = results[5] as List<String>;
+
+    final hasSales = modules.contains('SALES');
+    final hasWms = modules.contains('WMS');
+    final tabCount = 1 + (hasSales ? 1 : 0) + (hasWms ? 1 : 0); // General is always shown
+
+    final oldController = _tabController;
+    final newController = TabController(length: tabCount, vsync: this);
+
     setState(() {
       _username = username.isNotEmpty ? username : '-';
       _companyName = companyName.isNotEmpty ? companyName : 'N/A';
       _profileImage = profileImage;
       _userIsActive = userIsActive;
+      _hasSales = hasSales;
+      _hasWms = hasWms;
+      _tabController = newController;
+      _accessRights = accessRights;
     });
+
+    oldController.dispose();
   }
 
   String get _greeting {
@@ -87,18 +116,18 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             ),
             TabBar(
               controller: _tabController,
-              tabs: const [
-                Tab(text: 'Sales'),
-                Tab(text: 'Warehouse'),
-                Tab(text: 'General'),
+              tabs: [
+                if (_hasSales) const Tab(text: 'Sales'),
+                if (_hasWms) const Tab(text: 'Warehouse'),
+                const Tab(text: 'General'),
               ],
             ),
             Expanded(
               child: TabBarView(
                 controller: _tabController,
                 children: [
-                  _SalesTab(columnCount: _columnCount, onModuleTap: _onModuleTap),
-                  _WarehouseTab(columnCount: _columnCount, onModuleTap: _comingSoon),
+                  if (_hasSales) _SalesTab(columnCount: _columnCount, onModuleTap: _onModuleTap),
+                  if (_hasWms) _WarehouseTab(columnCount: _columnCount, onModuleTap: _onModuleTap),
                   _GeneralTab(columnCount: _columnCount, onModuleTap: _onModuleTap),
                 ],
               ),
@@ -189,6 +218,24 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
   }
 
+  bool _hasAccess(String right) => _accessRights.contains(right);
+
+  void _showNoAccessDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Access Denied'),
+        content: const Text('You do not have the access right to perform this action.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _onModuleTap(String module) {
     if (module == 'Stock Item') {
       Navigator.of(context).push(
@@ -207,16 +254,29 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         MaterialPageRoute(builder: (_) => const LocationListPage()),
       );
     } else if (module == 'Quotation') {
+      if (!_hasAccess('QUOTATION_VIEW')) { _showNoAccessDialog(); return; }
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const QuotationListPage()),
       );
     } else if (module == 'Sales Order') {
+      if (!_hasAccess('SALES_VIEW')) { _showNoAccessDialog(); return; }
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const SalesListPage()),
       );
     } else if (module == 'Collection') {
+      if (!_hasAccess('COLLECT_VIEW')) { _showNoAccessDialog(); return; }
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const CollectionListPage()),
+      );
+    } else if (module == 'Purchase Order') {
+      if (!_hasAccess('PURCHASE_VIEW')) { _showNoAccessDialog(); return; }
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const PurchaseListPage()),
+      );
+    } else if (module == 'Stock Take') {
+      if (!_hasAccess('STOCKTAKE_VIEW')) { _showNoAccessDialog(); return; }
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const StockTakeListPage()),
       );
     } else {
       _comingSoon(module);
@@ -264,7 +324,7 @@ class _SalesTab extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// Warehouse Tab
+// Warehouse Tab (grouped sections — scrollable)
 // ─────────────────────────────────────────────
 
 class _WarehouseTab extends StatelessWidget {
@@ -275,23 +335,97 @@ class _WarehouseTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final modules = [
-      _ModuleItem('Purchase Order', 'assests/images/purchaseorder.png',
-          () => onModuleTap('Purchase Order')),
-      _ModuleItem('Receiving', 'assests/images/receiving.png',
-          () => onModuleTap('Receiving')),
-      _ModuleItem('Put-Away', 'assests/images/putaway.png',
-          () => onModuleTap('Put-Away')),
-      _ModuleItem('Picking', 'assests/images/picking.png',
-          () => onModuleTap('Picking')),
-      _ModuleItem('Packing', 'assests/images/packing.png',
-          () => onModuleTap('Packing')),
-      _ModuleItem('Stock Transfer', 'assests/images/transfer.png',
-          () => onModuleTap('Stock Transfer')),
-      _ModuleItem('Stock Take', 'assests/images/stocktake.png',
-          () => onModuleTap('Stock Take')),
+    final cs = Theme.of(context).colorScheme;
+
+    final sections = [
+      (
+        'Inbound',
+        [
+          _ModuleItem('Put-Away', 'assests/images/putaway.png',
+              () => onModuleTap('Put-Away')),
+          _ModuleItem('Stock Transfer', 'assests/images/transfer.png',
+              () => onModuleTap('Stock Transfer')),
+        ]
+      ),
+      (
+        'Outbound',
+        [
+          _ModuleItem('Picking', 'assests/images/picking.png',
+              () => onModuleTap('Picking')),
+          _ModuleItem('Packing', 'assests/images/packing.png',
+              () => onModuleTap('Packing')),
+          _ModuleItem('Stock Transfer', 'assests/images/transfer.png',
+              () => onModuleTap('Stock Transfer')),
+        ]
+      ),
+      (
+        'Procurement',
+        [
+          // _ModuleItem('Purchase Order', 'assests/images/purchaseorder.png',
+          //     () => onModuleTap('Purchase Order')),
+          _ModuleItem('Receiving', 'assests/images/receiving.png',
+              () => onModuleTap('Receiving')),
+          _ModuleItem('Stock Take', 'assests/images/stocktake.png',
+              () => onModuleTap('Stock Take')),
+        ]
+      ),
     ];
-    return _ModuleGrid(items: modules, columnCount: columnCount);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = columnCount(constraints.maxWidth);
+        return SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (int s = 0; s < sections.length; s++) ...[
+           
+                // Section header
+                Row(
+                  children: [
+                    Container(
+                      width: 4,
+                      height: 16,
+                      decoration: BoxDecoration(
+                        color: cs.primary,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      sections[s].$1,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: cs.onSurface.withValues(alpha: 0.75),
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                  ],
+                ),
+
+                // Section grid
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  padding: EdgeInsets.only(top:15, bottom: 40),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: columns,
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
+                    childAspectRatio: 1.0,
+                  ),
+                  itemCount: sections[s].$2.length,
+                  itemBuilder: (_, i) => _ModuleCard(item: sections[s].$2[i]),
+                ),
+                const SizedBox(height: 12),
+              ],
+            ],
+          ),
+        );
+      },
+    );
   }
 }
 
