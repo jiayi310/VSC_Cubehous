@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../api/api_endpoints.dart';
 import '../../../api/base_client.dart';
 import '../../../common/dots_loading.dart';
+import '../../../common/status_badge.dart';
 import '../../../common/session_manager.dart';
 import '../../../models/location.dart';
 import '../../../models/storage.dart' hide Location;
@@ -17,6 +18,8 @@ class LocationDetailPage extends StatefulWidget {
 class _LocationDetailPageState extends State<LocationDetailPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
+  final _infoScrollController = ScrollController();
+  final _storageScrollController = ScrollController();
 
   String _apiKey = '';
   String _companyGUID = '';
@@ -37,6 +40,8 @@ class _LocationDetailPageState extends State<LocationDetailPage>
   @override
   void dispose() {
     _tabController.dispose();
+    _infoScrollController.dispose();
+    _storageScrollController.dispose();
     super.dispose();
   }
 
@@ -97,9 +102,21 @@ class _LocationDetailPageState extends State<LocationDetailPage>
     final loc = widget.location;
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          loc.location ?? 'Location',
-          style: const TextStyle(fontWeight: FontWeight.w600),
+        title: GestureDetector(
+          onDoubleTap: () {
+            final sc = _tabController.index == 0
+                ? _infoScrollController
+                : _storageScrollController;
+            if (sc.hasClients) {
+              sc.animateTo(0,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOut);
+            }
+          },
+          child: Text(
+            loc.location ?? 'Location',
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
         ),
         centerTitle: true,
         bottom: TabBar(
@@ -147,6 +164,7 @@ class _LocationDetailPageState extends State<LocationDetailPage>
     ].where((p) => p != null && p.isNotEmpty).join('\n');
 
     return ListView(
+      controller: _infoScrollController,
       children: [
         _SectionHeader(title: 'GENERAL'),
         _DetailRow(label: 'Location', value: loc.location ?? '—'),
@@ -154,7 +172,7 @@ class _LocationDetailPageState extends State<LocationDetailPage>
           label: 'Status',
           valueWidget: Align(
             alignment: Alignment.centerRight,
-            child: _StatusBadge(active: loc.isActive),
+            child: StatusBadge.active(loc.isActive),
           ),
         ),
         if (address.isNotEmpty) ...[
@@ -261,6 +279,7 @@ class _LocationDetailPageState extends State<LocationDetailPage>
     }
 
     return ListView.separated(
+      controller: _storageScrollController,
       itemCount: _storageList.length,
       separatorBuilder: (_, __) =>
           Divider(height: 1, color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.08)),
@@ -345,14 +364,14 @@ class _SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
+      padding: const EdgeInsets.fromLTRB(10, 16, 10, 6),
       child: Text(
         title,
         style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
+            fontSize: 13,
+          fontWeight: FontWeight.bold,
           color: Theme.of(context).colorScheme.primary,
-          letterSpacing: 0.5,
+          letterSpacing: 0.8,
         ),
       ),
     );
@@ -369,7 +388,7 @@ class _DetailRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
         border: Border(
           bottom: BorderSide(
@@ -388,12 +407,12 @@ class _DetailRow extends StatelessWidget {
             child: Text(
               label,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 12,
                 color: Theme.of(context)
                     .colorScheme
                     .onSurface
                     .withValues(alpha: 0.5),
-              ),
+                  ),
             ),
           ),
           Expanded(
@@ -404,42 +423,6 @@ class _DetailRow extends StatelessWidget {
                       fontSize: 13, fontWeight: FontWeight.w500),
                   textAlign: TextAlign.right,
                 ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatusBadge extends StatelessWidget {
-  final bool active;
-  const _StatusBadge({required this.active});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = active ? Colors.green : Colors.red;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            active ? 'Active' : 'Inactive',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: color,
-            ),
           ),
         ],
       ),

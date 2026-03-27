@@ -1,5 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:cubehous/common/my_color.dart';
+import 'package:cubehous/view/Common/common_dialog.dart';
+import 'package:cubehous/view/Common/decoration.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:open_filex/open_filex.dart';
@@ -34,8 +37,9 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
   bool _pdfLoading = false;
   String? _error;
 
-  final _amtFmt = NumberFormat('#,##0.00');
-  final _dateFmt = DateFormat('dd MMM yyyy');
+  late String _currency = '';
+  late NumberFormat _salesFmt;
+  late DateFormat _dateFmt;
 
   @override
   void initState() {
@@ -57,12 +61,20 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
       SessionManager.getUserID(),
       SessionManager.getUserSessionID(),
       SessionManager.getUserAccessRight(),
+      SessionManager.getSalesDecimalPoint(),
+      SessionManager.getCurrencySymbol(),
+      SessionManager.getDateFormat(),
     ]);
     _apiKey = results[0] as String;
     _companyGUID = results[1] as String;
     _userID = results[2] as int;
     _userSessionID = results[3] as String;
     _accessRights = results[4] as List<String>;
+    final dp = results[5] as int;
+    _salesFmt = NumberFormat('#,##0.${'0' * dp}');
+    _currency = results[6] as String;
+    final dF = results[7] as String;
+    _dateFmt = DateFormat(dF);
     await _loadDoc();
   }
 
@@ -109,31 +121,18 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
     }
   }
 
-  Future<void> _confirmDelete() async {
+  Future<void> _deleteDoc() async {
+    if (!_accessRights.contains('COLLECT_DELETE')){
+      CommonDialog.ShowNoAccessRightDialog(context);
+      return;
+    }
+    final confirmed = await CommonDialog.ConfirmDeleteDialog(context, _doc!.docNo, 'Collection');
+    if (confirmed != true) return;
+
     _apiKey = await SessionManager.getApiKey();
     _companyGUID = await SessionManager.getCompanyGUID();
     _userSessionID = await SessionManager.getUserSessionID();
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete Collection'),
-        content: Text(
-            'Are you sure you want to delete ${_doc!.docNo}? This action cannot be undone.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-    setState(() => _loading = true);
+
     try {
       await BaseClient.post(
         ApiEndpoints.removeCollection,
@@ -142,37 +141,27 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
           'companyGUID': _companyGUID,
           'userID': _userID,
           'userSessionID': _userSessionID,
-          'docID': widget.docID,
+          'docID': _doc!.docID,
         },
       );
-      if (mounted) Navigator.pop(context, true);
-    } catch (e) {
-      if (mounted) {
-        setState(() => _loading = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Failed to delete: $e'),
-          backgroundColor: Theme.of(context).colorScheme.error,
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+          content: Text('Collection deleted'),
           behavior: SnackBarBehavior.floating,
         ));
-      }
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+      final msg = e is BadRequestException ? e.message : 'Failed to delete: $e';
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(msg),
+          behavior: SnackBarBehavior.floating,
+        ));
     }
-  }
-
-  void _showNoAccessDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Access Denied'),
-        content: const Text(
-            'You do not have the access right to perform this action.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> _loadDoc() async {
@@ -217,29 +206,6 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
         ),
         centerTitle: true,
         actions: [
-          if (_doc != null && _doc!.isVoid)
-            Padding(
-              padding: const EdgeInsets.only(right: 4),
-              child: Center(
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: const Text(
-                    'VOID',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.red,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
-              ),
-            ),
           if (_doc != null)
             _pdfLoading
                 ? const Padding(
@@ -256,7 +222,7 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
                       switch (value) {
                         case 'edit':
                           if (!_accessRights.contains('COLLECT_EDIT')) {
-                            _showNoAccessDialog();
+                            CommonDialog.ShowNoAccessRightDialog(context);
                             return;
                           }
                           final updated = await Navigator.push<bool>(
@@ -267,35 +233,22 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
                             ),
                           );
                           if (updated == true && mounted) await _loadDoc();
-                        case 'delete':
-                          if (!_accessRights.contains('COLLECT_DELETE')) {
-                            _showNoAccessDialog();
-                            return;
-                          }
-                          _confirmDelete();
                         case 'pdf':
                           _downloadPdf();
+                        case 'delete':
+                          if (!_accessRights.contains('COLLECT_DELETE')) {
+                            CommonDialog.ShowNoAccessRightDialog(context);
+                            return;
+                          }
+                          _deleteDoc();
                       }
                     },
                     itemBuilder: (_) => [
-                      if (_accessRights.contains('COLLECT_EDIT'))
-                        const PopupMenuItem(
+                      const PopupMenuItem(
                           value: 'edit',
                           child: ListTile(
                             leading: Icon(Icons.edit_outlined),
                             title: Text('Edit'),
-                            contentPadding: EdgeInsets.zero,
-                            visualDensity: VisualDensity.compact,
-                          ),
-                        ),
-                      if (_accessRights.contains('COLLECT_DELETE'))
-                        const PopupMenuItem(
-                          value: 'delete',
-                          child: ListTile(
-                            leading: Icon(Icons.delete_outline,
-                                color: Colors.red),
-                            title: Text('Delete',
-                                style: TextStyle(color: Colors.red)),
                             contentPadding: EdgeInsets.zero,
                             visualDensity: VisualDensity.compact,
                           ),
@@ -310,6 +263,17 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
                           visualDensity: VisualDensity.compact,
                         ),
                       ),
+                      const PopupMenuItem(
+                          value: 'delete',
+                          child: ListTile(
+                            leading: Icon(Icons.delete_outline,
+                                color: Colors.red),
+                            title: Text('Delete',
+                                style: TextStyle(color: Colors.red)),
+                            contentPadding: EdgeInsets.zero,
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
                     ],
                   ),
         ],
@@ -329,8 +293,8 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
                     iconMargin: EdgeInsets.only(bottom: 2),
                   ),
                   Tab(
-                    icon: Icon(Icons.image_outlined, size: 18),
-                    text: 'Receipt',
+                    icon: Icon(Icons.attachment_outlined, size: 18),
+                    text: 'Attachment',
                     iconMargin: EdgeInsets.only(bottom: 2),
                   ),
                 ],
@@ -358,7 +322,7 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
                         children: [
                           _buildInfoTab(_doc!),
                           _buildOrdersTab(_doc!),
-                          _buildReceiptTab(_doc!),
+                          _buildAttachmentTab(_doc!),
                         ],
                       ),
                     ),
@@ -367,7 +331,7 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
     );
   }
 
-  // ── Totals bar ────────────────────────────────────────────────────────
+  // ── Totals summary bar ───────────────────────────────────────────────
 
   Widget _buildTotalsBar(CollectionDoc doc) {
     final primary = Theme.of(context).colorScheme.primary;
@@ -384,7 +348,7 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
           ),
           const Spacer(),
           Text(
-            _amtFmt.format(doc.paymentTotal),
+            '$_currency ${_salesFmt.format(doc.paymentTotal)}',
             style: TextStyle(
                 fontSize: 20, fontWeight: FontWeight.w800, color: primary),
           ),
@@ -413,19 +377,12 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
 
     return ListView(
       children: [
-        _SectionHeader(title: 'DOCUMENT'),
-        _DetailRow(label: 'Doc No', value: doc.docNo),
-        _DetailRow(
-          label: 'Date',
-          value: docDate != null ? _dateFmt.format(docDate) : doc.docDate,
-        ),
-        if ((doc.salesAgent ?? '').isNotEmpty)
-          _DetailRow(label: 'Sales Agent', value: doc.salesAgent!),
-        if ((doc.refNo ?? '').isNotEmpty)
-          _DetailRow(label: 'Reference No', value: doc.refNo!),
-        // Payment type badge row
-        if ((doc.paymentType ?? '').isNotEmpty)
-          Padding(
+        DetailSectionHeader(title: 'DOCUMENT'),
+        DetailDetailRow(label: 'Doc No', value: doc.docNo),
+        DetailDetailRow(label: 'Date', value: docDate != null ? _dateFmt.format(docDate) : doc.docDate,),
+        DetailDetailRow(label: 'Sales Agent', value: (doc.salesAgent ?? '').isEmpty ? '-' : doc.salesAgent ?? ''),
+        DetailDetailRow(label: 'Reference No', value: (doc.refNo ?? '').isEmpty ? '-' : doc.refNo ?? ''),
+        Padding(
             padding:
                 const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
@@ -438,6 +395,7 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
                           color: muted,
                           fontWeight: FontWeight.w500)),
                 ),
+                Spacer(),
                 Container(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 10, vertical: 4),
@@ -458,39 +416,12 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
             ),
           ),
         const SizedBox(height: 10),
-        _SectionHeader(title: 'CUSTOMER'),
-        _DetailRow(label: 'Code', value: doc.customerCode),
-        _DetailRow(label: 'Name', value: doc.customerName),
+        DetailSectionHeader(title: 'CUSTOMER'),
+        DetailDetailRow(label: 'Code', value: doc.customerCode),
+        DetailDetailRow(label: 'Name', value: doc.customerName),
         if (addressLines.isNotEmpty)
-          _AddressBlock(label: 'Address', lines: addressLines),
+          DetailAddressRow(label: 'Address', lines: addressLines),
         const SizedBox(height: 10),
-        _SectionHeader(title: 'TOTAL'),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Column(
-            children: [
-              const Divider(height: 8),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Payment Total',
-                      style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          color: primary)),
-                  Text(
-                    _amtFmt.format(doc.paymentTotal),
-                    style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        color: primary),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
         const SizedBox(height: 16),
       ],
     );
@@ -533,10 +464,10 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
       itemCount: doc.collectMappings.length,
-      itemBuilder: (_, i) => _MappingCard(
+      itemBuilder: (_, i) => _OrderMappingCard(
         index: i,
         mapping: doc.collectMappings[i],
-        amtFmt: _amtFmt,
+        salesFmt: _salesFmt,
         dateFmt: _dateFmt,
         primary: primary,
       ),
@@ -545,7 +476,7 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
 
   // ── Receipt tab ───────────────────────────────────────────────────────
 
-  Widget _buildReceiptTab(CollectionDoc doc) {
+  Widget _buildAttachmentTab(CollectionDoc doc) {
     if ((doc.image ?? '').isEmpty) {
       return Center(
         child: Padding(
@@ -561,7 +492,7 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
                       .withValues(alpha: 0.18)),
               const SizedBox(height: 14),
               Text(
-                'No receipt attached',
+                'No attachment',
                 style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
@@ -644,45 +575,27 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
 // Mapping card (like _ItemTile in quotation_detail)
 // ─────────────────────────────────────────────────────────────────────
 
-class _MappingCard extends StatefulWidget {
+class _OrderMappingCard extends StatefulWidget {
   final int index;
   final CollectMapping mapping;
-  final NumberFormat amtFmt;
+  final NumberFormat salesFmt;
   final DateFormat dateFmt;
   final Color primary;
 
-  const _MappingCard({
+  const _OrderMappingCard({
     required this.index,
     required this.mapping,
-    required this.amtFmt,
+    required this.salesFmt,
     required this.dateFmt,
     required this.primary,
   });
 
   @override
-  State<_MappingCard> createState() => _MappingCardState();
+  State<_OrderMappingCard> createState() => _OrderMappingCardState();
 }
 
-class _MappingCardState extends State<_MappingCard> {
+class _OrderMappingCardState extends State<_OrderMappingCard> {
   bool _expanded = false;
-
-  Widget _breakdownRow(String label, String value, ColorScheme cs,
-      {Color? valueColor}) =>
-      Row(
-        children: [
-          Text(label,
-              style: TextStyle(
-                  fontSize: 11,
-                  color: cs.onSurface.withValues(alpha: 0.5))),
-          const Spacer(),
-          Text(value,
-              style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: valueColor ??
-                      cs.onSurface.withValues(alpha: 0.65))),
-        ],
-      );
 
   @override
   Widget build(BuildContext context) {
@@ -690,13 +603,28 @@ class _MappingCardState extends State<_MappingCard> {
     final cardTheme = Theme.of(context).cardTheme;
     final m = widget.mapping;
     final primary = widget.primary;
+    final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.65);
 
     DateTime? saleDate;
     try {
       saleDate = DateTime.parse(m.salesDocDate);
     } catch (_) {}
 
-    final isPaid = m.editOutstanding <= 0;
+    final badge = Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: primary.withValues(alpha: 0.1),
+        shape: BoxShape.circle,
+      ),
+      child: Center(
+        child: Text(
+          '${widget.index + 1}',
+          style: TextStyle(
+              fontSize: 13, fontWeight: FontWeight.w700, color: primary),
+        ),
+      ),
+    );
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -705,38 +633,21 @@ class _MappingCardState extends State<_MappingCard> {
         child: Container(
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
           decoration: BoxDecoration(
-            color: (cardTheme.color ?? cs.surface).withValues(alpha: 0.5),
-            border: Border.all(
-                color: cs.outline.withValues(alpha: 0.18)),
+            color: (Theme.of(context).cardTheme.color ?? cs.surface)
+                .withValues(alpha: 0.5),
+            border: Border.all(color: cs.outline.withValues(alpha: 0.18)),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Index badge
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: primary.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Center(
-                  child: Text(
-                    '${widget.index + 1}',
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: primary),
-                  ),
-                ),
-              ),
+              badge,
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Row 1: docNo | date
+                    // Row 1: DocNo | Date
                     Row(
                       children: [
                         Text(
@@ -746,74 +657,35 @@ class _MappingCardState extends State<_MappingCard> {
                               fontWeight: FontWeight.w700,
                               color: primary),
                         ),
+                        const SizedBox(width: 6),
                         const Spacer(),
                         Text(
                           saleDate != null
                               ? widget.dateFmt.format(saleDate)
                               : m.salesDocDate,
-                          style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: primary),
+                          style: TextStyle(fontSize: 11, color: muted),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 3),
-                    // Row 2: sales agent or "Sales Order"
-                    Text(
-                      (m.salesAgent ?? '').isNotEmpty
-                          ? m.salesAgent!
-                          : 'Sales Order',
+                    const SizedBox(height: 10),
+                    // Row 3: payment amt
+                    Row(
+                      children: [
+                        Text(
+                      m.salesAgent ?? '',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                           fontSize: 12,
                           color: cs.onSurface.withValues(alpha: 0.5)),
                     ),
-                    const SizedBox(height: 6),
-                    // Row 3: status badge + spacer + payment amt
-                    Row(
-                      children: [
-                        // Outstanding badge
-                        if (!isPaid)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 5, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: Colors.orange.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              'Due ${widget.amtFmt.format(m.editOutstanding)}',
-                              style: const TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.orange,
-                                  fontWeight: FontWeight.w600),
-                            ),
-                          )
-                        else
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 5, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: Colors.green.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: const Text(
-                              'PAID',
-                              style: TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.green,
-                                  fontWeight: FontWeight.w700),
-                            ),
-                          ),
                         const Spacer(),
                         Text(
-                          widget.amtFmt.format(m.editPaymentAmt),
+                          widget.salesFmt.format(m.editPaymentAmt),
                           style: TextStyle(
                               fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.green),
+                              fontWeight: FontWeight.w800,
+                              color: primary),
                         ),
                       ],
                     ),
@@ -824,24 +696,17 @@ class _MappingCardState extends State<_MappingCard> {
                           height: 1,
                           color: cs.outline.withValues(alpha: 0.2)),
                       const SizedBox(height: 8),
-                      _breakdownRow(
+                      BreakdownRow(
                           'Sales Total',
-                          widget.amtFmt.format(m.salesFinalTotal),
-                          cs),
-                      const SizedBox(height: 3),
-                      _breakdownRow(
-                          'Paid',
-                          widget.amtFmt.format(m.editPaymentAmt),
+                          widget.salesFmt.format(m.salesFinalTotal),
                           cs,
-                          valueColor: Colors.green),
+                          valueColor: muted),
                       const SizedBox(height: 3),
-                      _breakdownRow(
-                          'After Outstanding',
-                          widget.amtFmt.format(m.editOutstanding),
+                      BreakdownRow(
+                          'Outstanding',
+                          widget.salesFmt.format(m.editOutstanding),
                           cs,
-                          valueColor: isPaid
-                              ? Colors.green
-                              : Colors.orange),
+                          valueColor: m.editOutstanding > 0 ? Mycolor.discountTextColor : muted),
                     ],
                   ],
                 ),
@@ -854,96 +719,3 @@ class _MappingCardState extends State<_MappingCard> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// Shared helper widgets
-// ─────────────────────────────────────────────────────────────────────
-
-class _SectionHeader extends StatelessWidget {
-  final String title;
-  const _SectionHeader({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-      child: Text(
-        title,
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          color: primary,
-          letterSpacing: 0.5,
-        ),
-      ),
-    );
-  }
-}
-
-class _DetailRow extends StatelessWidget {
-  final String label;
-  final String value;
-  const _DetailRow({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    final muted =
-        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 100,
-            child: Text(label,
-                style: TextStyle(
-                    fontSize: 12,
-                    color: muted,
-                    fontWeight: FontWeight.w500)),
-          ),
-          Expanded(
-            child: Text(value,
-                style: const TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w500)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AddressBlock extends StatelessWidget {
-  final String label;
-  final List<String> lines;
-  const _AddressBlock({required this.label, required this.lines});
-
-  @override
-  Widget build(BuildContext context) {
-    final muted =
-        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 100,
-            child: Text(label,
-                style: TextStyle(
-                    fontSize: 12,
-                    color: muted,
-                    fontWeight: FontWeight.w500)),
-          ),
-          Expanded(
-            child: Text(
-              lines.join('\n'),
-              style: const TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w500),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}

@@ -482,7 +482,7 @@ class _CustPickerFilterSheetState extends State<_CustPickerFilterSheet> {
                             _filterLabel('Sort By', primary),
                             const SizedBox(height: 8),
                             DropdownButtonFormField<String>(
-                              initialValue: _sortBy,
+                              value: _sortBy,
                               decoration: InputDecoration(
                                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                                 isDense: true,

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../api/api_endpoints.dart';
 import '../../api/base_client.dart';
+import '../../common/date_pill.dart';
+import '../../common/direction_chip.dart';
 import '../../common/dots_loading.dart';
 import '../../common/session_manager.dart';
 import '../../models/sales.dart';
@@ -256,7 +258,7 @@ class _SalesListPageState extends State<SalesListPage> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: _DatePill(
+                      child: DatePill(
                         label: 'From',
                         date: _dateFmt.format(_fromDate),
                         onTap: _pickFromDate,
@@ -265,7 +267,7 @@ class _SalesListPageState extends State<SalesListPage> {
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: _DatePill(
+                      child: DatePill(
                         label: 'To',
                         date: _dateFmt.format(_toDate),
                         onTap: _pickToDate,
@@ -643,60 +645,6 @@ class _VoidBadge extends StatelessWidget {
 // Date Pill
 // ─────────────────────────────────────────────────────────────────────
 
-class _DatePill extends StatelessWidget {
-  final String label;
-  final String date;
-  final VoidCallback onTap;
-  final Color primary;
-
-  const _DatePill({
-    required this.label,
-    required this.date,
-    required this.onTap,
-    required this.primary,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: primary.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: primary.withValues(alpha: 0.6),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                date,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: primary,
-                ),
-              ),
-            ),
-            Icon(Icons.expand_more_rounded,
-                size: 16, color: primary.withValues(alpha: 0.6)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 // ─────────────────────────────────────────────────────────────────────
 // Sort bottom sheet
 // ─────────────────────────────────────────────────────────────────────
@@ -789,7 +737,7 @@ class _SortSheetState extends State<_SortSheet> {
                           color: primary)),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
-                    initialValue: _sortBy,
+                    value: _sortBy,
                     decoration: InputDecoration(
                       border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10)),
@@ -813,7 +761,7 @@ class _SortSheetState extends State<_SortSheet> {
                   Row(
                     children: [
                       Expanded(
-                        child: _DirectionChip(
+                        child: DirectionChip(
                           label: 'Ascending',
                           icon: Icons.arrow_upward_rounded,
                           selected: _sortAsc,
@@ -822,7 +770,7 @@ class _SortSheetState extends State<_SortSheet> {
                       ),
                       const SizedBox(width: 10),
                       Expanded(
-                        child: _DirectionChip(
+                        child: DirectionChip(
                           label: 'Descending',
                           icon: Icons.arrow_downward_rounded,
                           selected: !_sortAsc,
@@ -851,56 +799,6 @@ class _SortSheetState extends State<_SortSheet> {
                 ],
               ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _DirectionChip extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _DirectionChip({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(
-          color: selected ? primary.withValues(alpha: 0.1) : Colors.transparent,
-          border: Border.all(
-              color: selected
-                  ? primary
-                  : Theme.of(context)
-                      .colorScheme
-                      .outline
-                      .withValues(alpha: 0.4)),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 16, color: selected ? primary : null),
-            const SizedBox(width: 6),
-            Text(label,
-                style: TextStyle(
-                    fontSize: 13,
-                    fontWeight:
-                        selected ? FontWeight.w600 : FontWeight.normal,
-                    color: selected ? primary : null)),
           ],
         ),
       ),

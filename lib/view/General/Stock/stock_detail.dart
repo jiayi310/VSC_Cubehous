@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../api/api_endpoints.dart';
-import '../../api/base_client.dart';
-import '../../common/dots_loading.dart';
-import '../../common/session_manager.dart';
-import '../../models/stock.dart';
-import '../../models/stock_detail.dart';
+import '../../../api/api_endpoints.dart';
+import '../../../api/base_client.dart';
+import '../../../common/date_pill.dart';
+import '../../../common/dots_loading.dart';
+import '../../../common/status_badge.dart';
+import '../../../common/session_manager.dart';
+import '../../../models/stock.dart';
+import '../../../models/stock_detail.dart';
 
 class StockDetailPage extends StatefulWidget {
   final Stock stock;
@@ -321,8 +323,11 @@ class _StockDetailPageState extends State<StockDetailPage>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Item Details',
-            style: TextStyle(fontWeight: FontWeight.w600)),
+        title: GestureDetector(
+          onDoubleTap: _scrollCurrentTabToTop,
+          child: const Text('Item Details',
+              style: TextStyle(fontWeight: FontWeight.w600)),
+        ),
         centerTitle: true,
       ),
       body: _loading
@@ -565,7 +570,7 @@ class _StockDetailPageState extends State<StockDetailPage>
             label: 'Description',
             value: detail.description.isNotEmpty ? detail.description : '—'),
         _DetailRow(
-            label: 'Description 2',
+            label: 'Desc 2',
             value: detail.desc2.isNotEmpty ? detail.desc2 : '—'),
         _DetailRow(
             label: 'Base UOM',
@@ -579,7 +584,7 @@ class _StockDetailPageState extends State<StockDetailPage>
           label: 'Status',
           valueWidget: Align(
             alignment: Alignment.centerRight,
-            child: _StatusBadge(active: detail.isActive),
+            child: StatusBadge.active(detail.isActive),
           ),
         ),
         _SectionHeader(title: 'CLASSIFICATION'),
@@ -665,8 +670,10 @@ class _StockDetailPageState extends State<StockDetailPage>
         return ListTile(
           leading: const Icon(Icons.qr_code_2_outlined),
           title: Text(b.barcode,
-              style: const TextStyle(fontWeight: FontWeight.w600)),
-          subtitle: b.description.isNotEmpty ? Text(b.description) : null,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600)),
+          subtitle: b.description.isNotEmpty ? Text(b.description, style: TextStyle(fontSize: 11),) : null,
         );
       },
     );
@@ -697,14 +704,14 @@ class _StockDetailPageState extends State<StockDetailPage>
         }
         final b = batches[i - 1];
         return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 b.batchNo.isNotEmpty ? b.batchNo : '—',
                 style: const TextStyle(
-                    fontWeight: FontWeight.w600, fontSize: 14),
+                    fontWeight: FontWeight.w600, fontSize: 12),
               ),
               const SizedBox(height: 6),
               Row(
@@ -823,7 +830,7 @@ class _StockDetailPageState extends State<StockDetailPage>
 
     return ListView(
       controller: sc,
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 32),
       children: [
         ..._locationBalances.map((loc) {
           final expanded = _locationExpanded[loc.locationID] ?? false;
@@ -866,11 +873,11 @@ class _StockDetailPageState extends State<StockDetailPage>
                         Expanded(
                           child: Text(loc.location.isNotEmpty ? loc.location : '—',
                               style: const TextStyle(
-                                  fontSize: 13, fontWeight: FontWeight.w600)),
+                                  fontSize: 12, fontWeight: FontWeight.w600)),
                         ),
                         Text(_qtyFmt.format(loc.qty),
                             style: TextStyle(
-                                fontSize: 16,
+                                fontSize: 15,
                                 fontWeight: FontWeight.w700,
                                 color: cs.primary)),
                         const SizedBox(width: 6),
@@ -931,7 +938,7 @@ class _StockDetailPageState extends State<StockDetailPage>
 
   Widget _buildStorageRow(StockSpecificBalance r, ColorScheme cs) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
         border: Border(
             bottom: BorderSide(color: cs.outline.withValues(alpha: 0.08))),
@@ -947,18 +954,18 @@ class _StockDetailPageState extends State<StockDetailPage>
               children: [
                 Text(r.storageCode.isNotEmpty ? r.storageCode : '—',
                     style: const TextStyle(
-                        fontSize: 12, fontWeight: FontWeight.w600)),
+                        fontSize: 11, fontWeight: FontWeight.w600)),
                 if (_detail?.hasBatch == true)
                   Text('Batch: ${(r.batchNo != null && r.batchNo!.isNotEmpty) ? r.batchNo : ''}',
                       style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 10,
                           color: cs.onSurface.withValues(alpha: 0.5))),
               ],
             ),
           ),
           Text(_qtyFmt.format(r.wmsQty),
               style: TextStyle(
-                  fontSize: 13,
+                  fontSize: 11,
                   fontWeight: FontWeight.w600,
                   color: cs.onSurface.withValues(alpha: 0.8))),
         ],
@@ -1028,7 +1035,7 @@ class _StockDetailPageState extends State<StockDetailPage>
               Row(
                 children: [
                   Expanded(
-                    child: _DatePill(
+                    child: DatePill(
                       label: 'From',
                       date: dateFmt.format(_historyFromDate),
                       primary: cs.primary,
@@ -1051,7 +1058,7 @@ class _StockDetailPageState extends State<StockDetailPage>
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: _DatePill(
+                    child: DatePill(
                       label: 'To',
                       date: dateFmt.format(_historyToDate),
                       primary: cs.primary,
@@ -1155,14 +1162,14 @@ class _SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
       child: Text(
         title,
         style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
+          fontSize: 13,
+          fontWeight: FontWeight.bold,
           color: Theme.of(context).colorScheme.primary,
-          letterSpacing: 0.5,
+          letterSpacing: 0.8,
         ),
       ),
     );
@@ -1183,7 +1190,7 @@ class _DetailRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
         border: Border(
           bottom: BorderSide(
@@ -1195,11 +1202,11 @@ class _DetailRow extends StatelessWidget {
       child: Row(
         children: [
           SizedBox(
-            width: 110,
+            width: 130,
             child: Text(
               label,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 12,
                 color: Theme.of(context)
                     .colorScheme
                     .onSurface
@@ -1212,7 +1219,7 @@ class _DetailRow extends StatelessWidget {
                 Text(
                   value ?? '—',
                   style:
-                      const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                      const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
                   textAlign: TextAlign.right,
                 ),
           ),
@@ -1235,7 +1242,7 @@ class _PriceRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
         border: Border(
           bottom: BorderSide(
@@ -1250,7 +1257,7 @@ class _PriceRow extends StatelessWidget {
             child: Text(
               label,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 12,
                 color: Theme.of(context)
                     .colorScheme
                     .onSurface
@@ -1260,7 +1267,7 @@ class _PriceRow extends StatelessWidget {
           ),
           Text(
             value,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
           ),
         ],
       ),
@@ -1271,42 +1278,6 @@ class _PriceRow extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────
 // Tag badge (e.g. "Has Batch")
 // ─────────────────────────────────────────────────────────────────────
-
-class _StatusBadge extends StatelessWidget {
-  final bool active;
-  const _StatusBadge({required this.active});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = active ? Colors.green : Colors.red;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            active ? 'Active' : 'Inactive',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1335,7 +1306,7 @@ class _DateChip extends StatelessWidget {
         Text(
           '$label: $date',
           style: TextStyle(
-            fontSize: 12,
+            fontSize: 11,
             color: Theme.of(context)
                 .colorScheme
                 .onSurface
@@ -1377,6 +1348,7 @@ class _Placeholder extends StatelessWidget {
             const SizedBox(height: 14),
             Text(
               title,
+              textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
@@ -1473,60 +1445,6 @@ class _HistoryTypeChip extends StatelessWidget {
 // Date pill (From / To date picker button)
 // ─────────────────────────────────────────────────────────────────────
 
-class _DatePill extends StatelessWidget {
-  final String label;
-  final String date;
-  final VoidCallback onTap;
-  final Color primary;
-
-  const _DatePill({
-    required this.label,
-    required this.date,
-    required this.onTap,
-    required this.primary,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: primary.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: primary.withValues(alpha: 0.6),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                date,
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: primary,
-                ),
-              ),
-            ),
-            Icon(Icons.expand_more_rounded,
-                size: 16, color: primary.withValues(alpha: 0.6)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 // ─────────────────────────────────────────────────────────────────────
 // History card (one transaction row)
 // ─────────────────────────────────────────────────────────────────────
@@ -1562,7 +1480,7 @@ class _HistoryCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Row 1: docNo + total
+          // Row 1: docNo (left) | date (right)
           Row(
             children: [
               Text(
@@ -1575,14 +1493,16 @@ class _HistoryCard extends StatelessWidget {
               ),
               const Spacer(),
               Text(
-                priceFmt.format(item.total),
-                style: const TextStyle(
-                    fontSize: 14, fontWeight: FontWeight.w700),
+                formattedDate,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: cs.onSurface.withValues(alpha: 0.45),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 3),
-          // Row 2: customer/supplier name + date
+          // Row 2: customer/supplier name (left) | location (right)
           Row(
             children: [
               Expanded(
@@ -1598,17 +1518,24 @@ class _HistoryCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              Text(
-                formattedDate,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: cs.onSurface.withValues(alpha: 0.45),
+              if (item.location != null && item.location!.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                Icon(Icons.location_on_outlined,
+                    size: 11,
+                    color: cs.onSurface.withValues(alpha: 0.35)),
+                const SizedBox(width: 2),
+                Text(
+                  item.location!,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: cs.onSurface.withValues(alpha: 0.45),
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
           const SizedBox(height: 6),
-          // Row 3: qty × price, UOM, discount badge, location
+          // Row 3: qty × price, UOM, discount badge (left) | total (right)
           Row(
             children: [
               Text(
@@ -1654,20 +1581,12 @@ class _HistoryCard extends StatelessWidget {
                   ),
                 ),
               ],
-              if (item.location != null && item.location!.isNotEmpty) ...[
-                const Spacer(),
-                Icon(Icons.location_on_outlined,
-                    size: 11,
-                    color: cs.onSurface.withValues(alpha: 0.35)),
-                const SizedBox(width: 2),
-                Text(
-                  item.location!,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: cs.onSurface.withValues(alpha: 0.45),
-                  ),
-                ),
-              ],
+              const Spacer(),
+              Text(
+                priceFmt.format(item.total),
+                style: const TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w700),
+              ),
             ],
           ),
         ],

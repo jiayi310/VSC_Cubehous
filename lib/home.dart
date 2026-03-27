@@ -4,13 +4,15 @@ import 'package:cubehous/view/General/Location/location_list.dart';
 import 'package:cubehous/view/General/Supplier/supplier_list.dart';
 import 'package:cubehous/view/Sales/collection_list.dart';
 import 'package:cubehous/view/Purchase/purchase_list.dart';
-import 'package:cubehous/view/Warehouse/stock_take_list.dart';
+import 'package:cubehous/view/Warehouse/Receiving/receiving_list.dart';
+import 'package:cubehous/view/Warehouse/Inbound/inbound_list.dart';
+import 'package:cubehous/view/Warehouse/StockTake/stock_take_list.dart';
 import 'package:cubehous/view/Sales/quotation_list.dart';
 import 'package:cubehous/view/Sales/sales_list.dart';
 import 'package:flutter/material.dart';
 import 'about_us.dart';
 import 'settings.dart';
-import 'view/General/stock_item.dart';
+import 'view/General/Stock/stock_item.dart';
 import 'package:flutter/services.dart';
 import 'common/session_manager.dart';
 import 'common/my_color.dart';
@@ -273,11 +275,26 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const PurchaseListPage()),
       );
+    } else if (module == 'Inbound') {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const InboundListPage()),
+      );
     } else if (module == 'Stock Take') {
       if (!_hasAccess('STOCKTAKE_VIEW')) { _showNoAccessDialog(); return; }
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const StockTakeListPage()),
       );
+    } else if (module == 'Receiving') {
+      if (!_hasAccess('RECEIVING_VIEW')) { _showNoAccessDialog(); return; }
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const ReceivingListPage()),
+      );
+    } else if (module == 'Put Away' ||
+        module == 'Picking' ||
+        module == 'Packing' ||
+        module == 'Stock Transfer' ||
+        module == 'Stock Adjustment') {
+      _comingSoon(module);
     } else {
       _comingSoon(module);
     }
@@ -324,7 +341,7 @@ class _SalesTab extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// Warehouse Tab (grouped sections — scrollable)
+// Warehouse Tab (Inbound / Outbound / Inventory)
 // ─────────────────────────────────────────────
 
 class _WarehouseTab extends StatelessWidget {
@@ -335,39 +352,43 @@ class _WarehouseTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-
     final sections = [
-      (
-        'Inbound',
-        [
-          _ModuleItem('Put-Away', 'assests/images/putaway.png',
-              () => onModuleTap('Put-Away')),
-          _ModuleItem('Stock Transfer', 'assests/images/transfer.png',
-              () => onModuleTap('Stock Transfer')),
-        ]
+      _WarehouseSection(
+        label: 'Inbound',
+        icon: Icons.arrow_downward_rounded,
+        color: const Color(0xFF1565C0),
+        items: [
+          _ModuleItem('Inbound', 'assests/images/inbound.png',
+              () => onModuleTap('Inbound'),
+              iconData: Icons.move_to_inbox_rounded,
+              iconColor: const Color(0xFF1565C0)),
+        ],
       ),
-      (
-        'Outbound',
-        [
+      _WarehouseSection(
+        label: 'Outbound',
+        icon: Icons.arrow_upward_rounded,
+        color: const Color(0xFFE65100),
+        items: [
           _ModuleItem('Picking', 'assests/images/picking.png',
               () => onModuleTap('Picking')),
           _ModuleItem('Packing', 'assests/images/packing.png',
               () => onModuleTap('Packing')),
-          _ModuleItem('Stock Transfer', 'assests/images/transfer.png',
-              () => onModuleTap('Stock Transfer')),
-        ]
+        ],
       ),
-      (
-        'Procurement',
-        [
-          // _ModuleItem('Purchase Order', 'assests/images/purchaseorder.png',
-          //     () => onModuleTap('Purchase Order')),
+      _WarehouseSection(
+        label: 'Inventory',
+        icon: Icons.inventory_2_outlined,
+        color: const Color(0xFF2E7D32),
+        items: [
           _ModuleItem('Receiving', 'assests/images/receiving.png',
               () => onModuleTap('Receiving')),
           _ModuleItem('Stock Take', 'assests/images/stocktake.png',
               () => onModuleTap('Stock Take')),
-        ]
+          _ModuleItem('Stock Transfer', 'assests/images/transfer.png',
+              () => onModuleTap('Stock Transfer')),
+          _ModuleItem('Stock Adjustment', 'assests/images/adjustment.png',
+              () => onModuleTap('Stock Adjustment')),
+        ],
       ),
     ];
 
@@ -375,56 +396,85 @@ class _WarehouseTab extends StatelessWidget {
       builder: (context, constraints) {
         final columns = columnCount(constraints.maxWidth);
         return SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              for (int s = 0; s < sections.length; s++) ...[
-           
-                // Section header
-                Row(
-                  children: [
-                    Container(
-                      width: 4,
-                      height: 16,
-                      decoration: BoxDecoration(
-                        color: cs.primary,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      sections[s].$1,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: cs.onSurface.withValues(alpha: 0.75),
-                        letterSpacing: 0.4,
-                      ),
-                    ),
-                  ],
-                ),
-
-                // Section grid
+              for (final section in sections) ...[
+                _WarehoueSectionHeader(section: section),
+                const SizedBox(height: 12),
                 GridView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  padding: EdgeInsets.only(top:15, bottom: 40),
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: columns,
                     crossAxisSpacing: 12,
                     mainAxisSpacing: 12,
                     childAspectRatio: 1.0,
                   ),
-                  itemCount: sections[s].$2.length,
-                  itemBuilder: (_, i) => _ModuleCard(item: sections[s].$2[i]),
+                  itemCount: section.items.length,
+                  itemBuilder: (_, i) => _ModuleCard(item: section.items[i]),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 24),
               ],
             ],
           ),
         );
       },
+    );
+  }
+}
+
+class _WarehouseSection {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final List<_ModuleItem> items;
+
+  const _WarehouseSection({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.items,
+  });
+}
+
+class _WarehoueSectionHeader extends StatelessWidget {
+  final _WarehouseSection section;
+  const _WarehoueSectionHeader({required this.section});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Row(
+      children: [
+        Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: section.color.withValues(alpha: isDark ? 0.25 : 0.12),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(section.icon, size: 18, color: section.color),
+        ),
+        const SizedBox(width: 10),
+        Text(
+          section.label,
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            color: section.color,
+            letterSpacing: 0.2,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Divider(
+            color: section.color.withValues(alpha: 0.2),
+            thickness: 1,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -751,17 +801,32 @@ class _ModuleCard extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Image.asset(
-              item.imagePath,
-              width: 64,
-              height: 64,
-              fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) => const Icon(
-                Icons.image_not_supported_outlined,
-                size: 48,
-                color: Colors.grey,
+            if (item.iconData != null)
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: (item.iconColor ?? Theme.of(context).colorScheme.primary)
+                      .withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(item.iconData!,
+                    size: 34,
+                    color: item.iconColor ??
+                        Theme.of(context).colorScheme.primary),
+              )
+            else
+              Image.asset(
+                item.imagePath,
+                width: 64,
+                height: 64,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Icon(
+                  Icons.image_not_supported_outlined,
+                  size: 48,
+                  color: Colors.grey,
+                ),
               ),
-            ),
             const SizedBox(height: 10),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -791,6 +856,9 @@ class _ModuleItem {
   final String title;
   final String imagePath;
   final VoidCallback onTap;
+  final IconData? iconData;
+  final Color? iconColor;
 
-  const _ModuleItem(this.title, this.imagePath, this.onTap);
+  const _ModuleItem(this.title, this.imagePath, this.onTap,
+      {this.iconData, this.iconColor});
 }

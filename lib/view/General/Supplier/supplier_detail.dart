@@ -1,18 +1,40 @@
 import 'package:flutter/material.dart';
 import '../../../models/suppplier.dart';
 
-class SupplierDetailPage extends StatelessWidget {
+class SupplierDetailPage extends StatefulWidget {
   final Supplier supplier;
 
   const SupplierDetailPage({super.key, required this.supplier});
 
   @override
+  State<SupplierDetailPage> createState() => _SupplierDetailPageState();
+}
+
+class _SupplierDetailPageState extends State<SupplierDetailPage> {
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          'Supplier',
-          style: const TextStyle(fontWeight: FontWeight.w600),
+        title: GestureDetector(
+          onDoubleTap: () {
+            if (_scrollController.hasClients) {
+              _scrollController.animateTo(
+                0,
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOut,
+              );
+            }
+          },
+          child: const Text('Supplier',
+              style: TextStyle(fontWeight: FontWeight.w600)),
         ),
         centerTitle: true,
       ),
@@ -21,8 +43,9 @@ class SupplierDetailPage extends StatelessWidget {
   }
 
   Widget _buildDetail(BuildContext context) {
-    final s = supplier;
+    final s = widget.supplier;
     return SingleChildScrollView(
+      controller: _scrollController,
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -148,10 +171,10 @@ class SupplierDetailPage extends StatelessWidget {
         Text(
           title,
           style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: Theme.of(context).colorScheme.primary,
-            letterSpacing: 0.5,
+            fontSize: 13,
+          fontWeight: FontWeight.bold,
+          color: Theme.of(context).colorScheme.primary,
+          letterSpacing: 0.8,
           ),
         ),
         const SizedBox(height: 8),
@@ -170,7 +193,7 @@ class SupplierDetailPage extends StatelessWidget {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -179,11 +202,11 @@ class SupplierDetailPage extends StatelessWidget {
                 child: Text(
                   label,
                   style: TextStyle(
-                    fontSize: 13,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: 0.55),
+                fontSize: 12,
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.5),
                   ),
                 ),
               ),

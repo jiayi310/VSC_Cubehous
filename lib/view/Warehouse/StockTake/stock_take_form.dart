@@ -1,16 +1,18 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import '../../api/api_endpoints.dart';
-import '../../api/base_client.dart';
-import '../../common/dots_loading.dart';
-import '../../common/session_manager.dart';
-import '../../models/stock.dart';
-import '../../models/stock_take.dart';
-import '../../models/storage.dart';
+import '../../../api/api_endpoints.dart';
+import '../../../api/base_client.dart';
+import '../../../common/dots_loading.dart';
+import '../../../common/session_manager.dart';
+import '../../../models/stock.dart';
+import '../../../models/stock_take.dart';
+import '../../../models/storage.dart';
+import '../../Common/decoration.dart';
+import '../../Common/Location/location_picker.dart';
+import '../../Common/Stock/item_picker_page.dart';
 
 // ─────────────────────────────────────────────────────────────────────
 // Local working item (not a model, lives only during form editing)
@@ -176,7 +178,183 @@ class _StockTakeFormPageState extends State<StockTakeFormPage> {
       } catch (_) {}
     }
 
+    if (!_isEdit) await _checkAndRestoreDraft();
     if (mounted) setState(() => _initLoading = false);
+  }
+
+  // ── Draft helpers ─────────────────────────────────────────────────
+
+  bool get _hasChanges =>
+      _items.isNotEmpty ||
+      _descController.text.isNotEmpty ||
+      _remarkController.text.isNotEmpty;
+
+  Future<void> _saveDraft() async {
+    final draft = {
+      'docDate': _docDate.toIso8601String(),
+      'locationID': _locationID,
+      'locationName': _locationName,
+      'description': _descController.text,
+      'remark': _remarkController.text,
+      'items': _items
+          .map((i) => {
+                'stockID': i.stockID,
+                'stockBatchID': i.stockBatchID,
+                'stockCode': i.stockCode,
+                'description': i.description,
+                'uom': i.uom,
+                'qty': i.qty,
+                'storageID': i.storageID,
+                'storageCode': i.storageCode,
+                'locationID': i.locationID,
+                'itemImage': i.itemImage,
+              })
+          .toList(),
+    };
+    await SessionManager.saveStockTakeDraft(jsonEncode(draft));
+  }
+
+  void _restoreDraft(Map<String, dynamic> j) {
+    _docDate =
+        DateTime.tryParse(j['docDate'] as String? ?? '') ?? DateTime.now();
+    _locationID = (j['locationID'] as int?) ?? _locationID;
+    _locationName = (j['locationName'] as String?) ?? _locationName;
+    _descController.text = (j['description'] as String?) ?? '';
+    _remarkController.text = (j['remark'] as String?) ?? '';
+    for (final raw in (j['items'] as List<dynamic>? ?? [])) {
+      final m = raw as Map<String, dynamic>;
+      _items.add(_StockTakeItem(
+        stockID: (m['stockID'] as int?) ?? 0,
+        stockBatchID: (m['stockBatchID'] as int?) ?? 0,
+        stockCode: (m['stockCode'] as String?) ?? '',
+        description: (m['description'] as String?) ?? '',
+        uom: (m['uom'] as String?) ?? '',
+        qty: ((m['qty'] as num?) ?? 1.0).toDouble(),
+        storageID: (m['storageID'] as int?) ?? 0,
+        storageCode: (m['storageCode'] as String?) ?? '',
+        locationID: (m['locationID'] as int?) ?? 0,
+        itemImage: m['itemImage'] as String?,
+      ));
+    }
+  }
+
+  Future<void> _checkAndRestoreDraft() async {
+    final raw = await SessionManager.getStockTakeDraft();
+    if (raw == null || raw.isEmpty) return;
+    try {
+      final j = jsonDecode(raw) as Map<String, dynamic>;
+      if (mounted) setState(() => _restoreDraft(j));
+    } catch (_) {
+      await SessionManager.clearStockTakeDraft();
+    }
+  }
+
+  Future<bool> _onWillPop() async {
+    if (_isScannerMode) {
+      setState(() => _isScannerMode = false);
+      return false;
+    }
+    if (_isEdit || !_hasChanges) return true;
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20)),
+          contentPadding: EdgeInsets.zero,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 24),
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: cs.primary.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.save_outlined,
+                    size: 30, color: cs.primary),
+              ),
+              const SizedBox(height: 16),
+              const Text('Save Draft?',
+                  style: TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  'Do you want to save your progress as a draft?',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: cs.onSurface.withValues(alpha: 0.6),
+                      height: 1.5),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Divider(
+                  height: 1,
+                  color: cs.outline.withValues(alpha: 0.15)),
+              IntrinsicHeight(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 16),
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.only(
+                                bottomLeft: Radius.circular(20)),
+                          ),
+                        ),
+                        onPressed: () =>
+                            Navigator.pop(ctx, 'discard'),
+                        child: Text('Discard',
+                            style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: cs.onSurface
+                                    .withValues(alpha: 0.5))),
+                      ),
+                    ),
+                    VerticalDivider(
+                        width: 1,
+                        color: cs.outline.withValues(alpha: 0.15)),
+                    Expanded(
+                      child: TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 16),
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.only(
+                                bottomRight: Radius.circular(20)),
+                          ),
+                        ),
+                        onPressed: () =>
+                            Navigator.pop(ctx, 'save'),
+                        child: Text('Save Draft',
+                            style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: cs.primary)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (result == null) return false;
+    if (result == 'save') await _saveDraft();
+    if (result == 'discard') await SessionManager.clearStockTakeDraft();
+    return true;
   }
 
   // ── Location Picker ───────────────────────────────────────────────
@@ -185,7 +363,8 @@ class _StockTakeFormPageState extends State<StockTakeFormPage> {
     final result = await Navigator.push<({int locationID, String locationName})>(
       context,
       MaterialPageRoute(
-        builder: (_) => _LocationPickerPage(
+        builder: (_) => LocationPickerPage(
+          module: "STOCKTAKE",
           apiKey: _apiKey,
           companyGUID: _companyGUID,
           userID: _userID,
@@ -234,7 +413,8 @@ class _StockTakeFormPageState extends State<StockTakeFormPage> {
     final storage = await Navigator.push<StorageDropdownDto>(
       context,
       MaterialPageRoute(
-        builder: (_) => _StoragePickerPage(
+        builder: (_) => StoragePickerPage(
+          module: "STOCKTAKE",
           apiKey: _apiKey,
           companyGUID: _companyGUID,
           userID: _userID,
@@ -245,20 +425,31 @@ class _StockTakeFormPageState extends State<StockTakeFormPage> {
     );
     if (storage == null || !mounted) return;
 
-    // Step 2: pick stock (stays open, items added via callback)
+    // Step 2: pick stock — sheet handled inside ItemPickerPage, stays open
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => _StockPickerPage(
+        builder: (_) => ItemPickerPage(
+          module: 'STOCKTAKE',
           apiKey: _apiKey,
           companyGUID: _companyGUID,
           userID: _userID,
-          companyID: _companyID,
           userSessionID: _userSessionID,
-          selectedStorage: storage,
-          locationID: _locationID,
-          onItemAdded: (item) {
-            if (mounted) setState(() => _items.add(item));
+          onItemAdded: (stock, uom, qty) {
+            if (mounted) {
+              setState(() => _items.add(_StockTakeItem(
+                    stockID: stock.stockID,
+                    stockBatchID: 0,
+                    stockCode: stock.stockCode,
+                    description: stock.description,
+                    uom: uom,
+                    qty: qty,
+                    storageID: storage.storageID,
+                    storageCode: storage.storageCode ?? '',
+                    locationID: _locationID,
+                    itemImage: stock.image,
+                  )));
+            }
           },
         ),
       ),
@@ -551,6 +742,7 @@ class _StockTakeFormPageState extends State<StockTakeFormPage> {
         },
       );
 
+      if (!_isEdit) await SessionManager.clearStockTakeDraft();
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       if (mounted) {
@@ -730,11 +922,9 @@ class _StockTakeFormPageState extends State<StockTakeFormPage> {
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
-        if (_isScannerMode) {
-          setState(() => _isScannerMode = false);
-          return;
-        }
-        Navigator.of(context).pop();
+        final nav = Navigator.of(context);
+        final shouldPop = await _onWillPop();
+        if (shouldPop) nav.pop();
       },
       child: Scaffold(
         appBar: AppBar(
@@ -776,7 +966,7 @@ class _StockTakeFormPageState extends State<StockTakeFormPage> {
                         child: _saving
                             ? const DotsLoading(dotSize: 6)
                             : Text(
-                                _isEdit ? 'Update Stock Take' : 'Create Stock Take',
+                                _isEdit ? 'Update' : 'Save',
                                 style: const TextStyle(
                                     fontSize: 15, fontWeight: FontWeight.w700)),
                       ),
@@ -846,7 +1036,7 @@ class _StockTakeFormPageState extends State<StockTakeFormPage> {
                         controller: _descController,
                         maxLines: 1,
                         style: const TextStyle(fontSize: 14),
-                        decoration: _inputDeco(''),
+                        decoration: formInputDeco(context),
                       ),
                       const SizedBox(height: 12),
                       _fieldLabel(label: 'Remark'),
@@ -854,7 +1044,7 @@ class _StockTakeFormPageState extends State<StockTakeFormPage> {
                         controller: _remarkController,
                         maxLines: 1,
                         style: const TextStyle(fontSize: 14),
-                        decoration: _inputDeco(''),
+                        decoration: formInputDeco(context),
                       ),
                       const SizedBox(height: 4),
                     ],
@@ -873,7 +1063,7 @@ class _StockTakeFormPageState extends State<StockTakeFormPage> {
                 ? Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _fieldLabel(label: 'Warehouse Location *'),
+                      _fieldLabel(label: 'Location *'),
                       InkWell(
                         onTap: _pickLocation,
                         borderRadius: BorderRadius.circular(12),
@@ -995,30 +1185,6 @@ class _StockTakeFormPageState extends State<StockTakeFormPage> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  InputDecoration _inputDeco(String label) {
-    return InputDecoration(
-      labelText: label.isEmpty ? null : label,
-      labelStyle: TextStyle(
-          color: Theme.of(context)
-              .colorScheme
-              .onSurface
-              .withValues(alpha: 0.4)),
-      filled: true,
-      isDense: true,
-      border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none),
-      enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(
-            color: Theme.of(context).colorScheme.primary, width: 1.5),
       ),
     );
   }
@@ -1369,777 +1535,4 @@ class _ItemCard extends StatelessWidget {
           ),
         ),
       );
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Location Picker Page
-// ─────────────────────────────────────────────────────────────────────
-
-class _LocationPickerPage extends StatefulWidget {
-  final String apiKey;
-  final String companyGUID;
-  final int userID;
-  final String userSessionID;
-
-  const _LocationPickerPage({
-    required this.apiKey,
-    required this.companyGUID,
-    required this.userID,
-    required this.userSessionID,
-  });
-
-  @override
-  State<_LocationPickerPage> createState() => _LocationPickerPageState();
-}
-
-class _LocationPickerPageState extends State<_LocationPickerPage> {
-  List<Map<String, dynamic>> _locations = [];
-  bool _loading = true;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final resp = await BaseClient.post(
-        ApiEndpoints.getLocationList,
-        body: {
-          'apiKey': widget.apiKey,
-          'companyGUID': widget.companyGUID,
-          'userID': widget.userID,
-          'userSessionID': widget.userSessionID,
-        },
-      );
-      if (resp is List<dynamic>) {
-        setState(() {
-          _locations = resp.cast<Map<String, dynamic>>();
-          _loading = false;
-        });
-      } else {
-        setState(() {
-          _locations = [];
-          _loading = false;
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _error = e.toString();
-        _loading = false;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Select Location',
-            style: TextStyle(fontWeight: FontWeight.w600)),
-        centerTitle: true,
-      ),
-      body: _loading
-          ? const Center(child: DotsLoading())
-          : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(32),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.error_outline,
-                            size: 48,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .error
-                                .withValues(alpha: 0.6)),
-                        const SizedBox(height: 12),
-                        Text(_error!,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(fontSize: 13)),
-                        const SizedBox(height: 16),
-                        FilledButton.icon(
-                            onPressed: _load,
-                            icon: const Icon(Icons.refresh),
-                            label: const Text('Retry')),
-                      ],
-                    ),
-                  ),
-                )
-              : ListView.builder(
-                  itemCount: _locations.length,
-                  itemBuilder: (_, i) {
-                    final loc = _locations[i];
-                    final id = (loc['locationID'] as int?) ?? 0;
-                    final name = (loc['location'] as String?) ?? '';
-                    return ListTile(
-                      leading: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: primary.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(Icons.location_on_outlined,
-                            size: 20, color: primary),
-                      ),
-                      title: Text(name,
-                          style: const TextStyle(
-                              fontSize: 14, fontWeight: FontWeight.w500)),
-                      onTap: () => Navigator.pop(
-                          context, (locationID: id, locationName: name)),
-                    );
-                  },
-                ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Storage Picker Page
-// ─────────────────────────────────────────────────────────────────────
-
-class _StoragePickerPage extends StatefulWidget {
-  final String apiKey;
-  final String companyGUID;
-  final int userID;
-  final String userSessionID;
-  final int locationID;
-
-  const _StoragePickerPage({
-    required this.apiKey,
-    required this.companyGUID,
-    required this.userID,
-    required this.userSessionID,
-    required this.locationID,
-  });
-
-  @override
-  State<_StoragePickerPage> createState() => _StoragePickerPageState();
-}
-
-class _StoragePickerPageState extends State<_StoragePickerPage> {
-  List<StorageDropdownDto> _storages = [];
-  bool _loading = true;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final response = await BaseClient.post(
-        ApiEndpoints.getLocationWithStorage,
-        body: {
-          'apiKey': widget.apiKey,
-          'companyGUID': widget.companyGUID,
-          'userID': widget.userID,
-          'userSessionID': widget.userSessionID,
-          'locationID': widget.locationID,
-        },
-      );
-
-      List<StorageDropdownDto> items = [];
-      if (response is List<dynamic> && response.isNotEmpty) {
-        final first = response.first as Map<String, dynamic>;
-        final raw = first['storageDropdownDtoList'];
-        if (raw is List<dynamic>) {
-          items = raw
-              .map((e) =>
-                  StorageDropdownDto.fromJson(e as Map<String, dynamic>))
-              .toList();
-        }
-      }
-      setState(() {
-        _storages = items;
-        _loading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _error = e.toString();
-        _loading = false;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Select Storage',
-            style: TextStyle(fontWeight: FontWeight.w600)),
-        centerTitle: true,
-      ),
-      body: _loading
-          ? const Center(child: DotsLoading())
-          : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(32),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.error_outline,
-                            size: 48,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .error
-                                .withValues(alpha: 0.6)),
-                        const SizedBox(height: 12),
-                        Text(_error!,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(fontSize: 13)),
-                        const SizedBox(height: 16),
-                        FilledButton.icon(
-                            onPressed: _load,
-                            icon: const Icon(Icons.refresh),
-                            label: const Text('Retry')),
-                      ],
-                    ),
-                  ),
-                )
-              : _storages.isEmpty
-                  ? Center(
-                      child: Text('No storages found',
-                          style: TextStyle(
-                              fontSize: 14,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurface
-                                  .withValues(alpha: 0.4))),
-                    )
-                  : ListView.builder(
-                      itemCount: _storages.length,
-                      itemBuilder: (_, i) {
-                        final s = _storages[i];
-                        final disabled = s.isDisabled;
-                        return ListTile(
-                          leading: Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: disabled
-                                  ? Colors.grey.withValues(alpha: 0.1)
-                                  : primary.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Icon(Icons.warehouse_outlined,
-                                size: 20,
-                                color: disabled ? Colors.grey : primary),
-                          ),
-                          title: Text(
-                            s.storageCode ?? '',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                                color: disabled
-                                    ? Theme.of(context)
-                                        .colorScheme
-                                        .onSurface
-                                        .withValues(alpha: 0.35)
-                                    : null),
-                          ),
-                          subtitle: disabled
-                              ? Text('Disabled',
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey
-                                          .withValues(alpha: 0.6)))
-                              : null,
-                          enabled: !disabled,
-                          onTap: disabled
-                              ? null
-                              : () => Navigator.pop(context, s),
-                        );
-                      },
-                    ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Stock Picker Page
-// ─────────────────────────────────────────────────────────────────────
-
-class _StockPickerPage extends StatefulWidget {
-  final String apiKey;
-  final String companyGUID;
-  final int userID;
-  final int companyID;
-  final String userSessionID;
-  final StorageDropdownDto selectedStorage;
-  final int locationID;
-  final void Function(_StockTakeItem item) onItemAdded;
-
-  const _StockPickerPage({
-    required this.apiKey,
-    required this.companyGUID,
-    required this.userID,
-    required this.companyID,
-    required this.userSessionID,
-    required this.selectedStorage,
-    required this.locationID,
-    required this.onItemAdded,
-  });
-
-  @override
-  State<_StockPickerPage> createState() => _StockPickerPageState();
-}
-
-class _StockPickerPageState extends State<_StockPickerPage> {
-  static const _pageSize = 20;
-
-  List<Stock> _stocks = [];
-  bool _isLoading = false;
-  bool _isLoadingMore = false;
-  bool _hasMore = true;
-  int _currentPage = 0;
-  String? _error;
-
-  final _searchController = TextEditingController();
-  String _searchQuery = '';
-  final _scrollController = ScrollController();
-  final _qtyFmt = NumberFormat('#,##0.##');
-
-  @override
-  void initState() {
-    super.initState();
-    _scrollController.addListener(_onScroll);
-    _fetch(page: 0);
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    _scrollController.dispose();
-    super.dispose();
-  }
-
-  void _onScroll() {
-    if (_scrollController.position.pixels >=
-        _scrollController.position.maxScrollExtent - 200) {
-      if (!_isLoading && !_isLoadingMore && _hasMore) {
-        _fetchMore();
-      }
-    }
-  }
-
-  Future<void> _fetch({required int page}) async {
-    if (_isLoading) return;
-    setState(() {
-      _isLoading = true;
-      _error = null;
-      if (page == 0) _stocks = [];
-    });
-    try {
-      final resp = await BaseClient.post(
-        ApiEndpoints.getStockList,
-        body: {
-          'apiKey': widget.apiKey,
-          'companyGUID': widget.companyGUID,
-          'userID': widget.userID,
-          'userSessionID': widget.userSessionID,
-          'companyID': widget.companyID,
-          'pageIndex': page,
-          'pageSize': _pageSize,
-          'searchTerm': _searchQuery.isEmpty ? '' : _searchQuery,
-        },
-      );
-      final result =
-          StockResponse.fromJson(resp as Map<String, dynamic>);
-      final items = result.data ?? [];
-      final total = result.pagination?.totalRecord ?? items.length;
-      setState(() {
-        _stocks = page == 0 ? items : [..._stocks, ...items];
-        _currentPage = page;
-        _hasMore = _stocks.length < total;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _error = e.toString();
-        _isLoading = false;
-      });
-    }
-  }
-
-  Future<void> _fetchMore() async {
-    if (_isLoadingMore || !_hasMore) return;
-    setState(() => _isLoadingMore = true);
-    try {
-      final resp = await BaseClient.post(
-        ApiEndpoints.getStockList,
-        body: {
-          'apiKey': widget.apiKey,
-          'companyGUID': widget.companyGUID,
-          'userID': widget.userID,
-          'userSessionID': widget.userSessionID,
-          'companyID': widget.companyID,
-          'pageIndex': _currentPage + 1,
-          'pageSize': _pageSize,
-          'searchTerm': _searchQuery.isEmpty ? '' : _searchQuery,
-        },
-      );
-      final result =
-          StockResponse.fromJson(resp as Map<String, dynamic>);
-      final items = result.data ?? [];
-      final total = result.pagination?.totalRecord ?? _stocks.length;
-      setState(() {
-        _stocks = [..._stocks, ...items];
-        _currentPage = _currentPage + 1;
-        _hasMore = _stocks.length < total;
-        _isLoadingMore = false;
-      });
-    } catch (_) {
-      setState(() => _isLoadingMore = false);
-    }
-  }
-
-  void _onSearchSubmit(String value) {
-    setState(() {
-      _searchQuery = value.trim();
-      _hasMore = true;
-    });
-    _fetch(page: 0);
-  }
-
-  Future<void> _onStockTap(Stock stock) async {
-    final cs = Theme.of(context).colorScheme;
-    final uomController =
-        TextEditingController(text: stock.baseUOM);
-    final qtyController = TextEditingController(text: '1');
-    double qty = 1.0;
-
-    final confirmed = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheetState) => Padding(
-          padding: EdgeInsets.only(
-              bottom: MediaQuery.of(ctx).viewInsets.bottom),
-          child: Container(
-            decoration: BoxDecoration(
-              color: cs.surface,
-              borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(20)),
-            ),
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: cs.onSurface.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(stock.stockCode,
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: cs.primary)),
-                const SizedBox(height: 2),
-                Text(stock.description,
-                    style: TextStyle(
-                        fontSize: 13,
-                        color: cs.onSurface.withValues(alpha: 0.65))),
-                const SizedBox(height: 20),
-                // UOM field
-                TextField(
-                  controller: uomController,
-                  decoration: InputDecoration(
-                    labelText: 'UOM',
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10)),
-                    isDense: true,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                // Qty stepper
-                Row(
-                  children: [
-                    Text('Quantity',
-                        style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: cs.primary)),
-                    const Spacer(),
-                    IconButton(
-                      icon: const Icon(Icons.remove_circle_outline),
-                      onPressed: () {
-                        final v =
-                            double.tryParse(qtyController.text) ??
-                                1.0;
-                        final newV = (v - 1.0).clamp(1.0, double.infinity);
-                        qtyController.text =
-                            _qtyFmt.format(newV);
-                        setSheetState(() => qty = newV);
-                      },
-                    ),
-                    SizedBox(
-                      width: 80,
-                      child: TextField(
-                        controller: qtyController,
-                        keyboardType:
-                            const TextInputType.numberWithOptions(
-                                decimal: true),
-                        textAlign: TextAlign.center,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.allow(
-                              RegExp(r'[\d.]')),
-                        ],
-                        decoration: InputDecoration(
-                          isDense: true,
-                          border: OutlineInputBorder(
-                              borderRadius:
-                                  BorderRadius.circular(8)),
-                        ),
-                        onChanged: (v) {
-                          final parsed = double.tryParse(v);
-                          if (parsed != null) {
-                            qty = parsed.clamp(1.0, double.infinity);
-                          }
-                        },
-                        onEditingComplete: () {
-                          final v =
-                              double.tryParse(qtyController.text) ??
-                                  1.0;
-                          qty = v.clamp(1.0, double.infinity);
-                          qtyController.text = _qtyFmt.format(qty);
-                        },
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.add_circle_outline),
-                      onPressed: () {
-                        final v =
-                            double.tryParse(qtyController.text) ??
-                                1.0;
-                        final newV = v + 1.0;
-                        qtyController.text =
-                            _qtyFmt.format(newV);
-                        setSheetState(() => qty = newV);
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                    ),
-                    onPressed: () => Navigator.pop(ctx, true),
-                    child: const Text('Done',
-                        style: TextStyle(fontWeight: FontWeight.w600)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
-    if (confirmed == true) {
-      final finalQty =
-          (double.tryParse(qtyController.text) ?? qty).clamp(1.0, double.infinity);
-      final finalUom =
-          uomController.text.isNotEmpty ? uomController.text : stock.baseUOM;
-
-      widget.onItemAdded(_StockTakeItem(
-        stockID: stock.stockID,
-        stockBatchID: 0,
-        stockCode: stock.stockCode,
-        description: stock.description,
-        uom: finalUom,
-        qty: finalQty,
-        storageID: widget.selectedStorage.storageID,
-        storageCode: widget.selectedStorage.storageCode ?? '',
-        locationID: widget.locationID,
-        itemImage: stock.image,
-      ));
-
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(
-            content: Text('${stock.stockCode} added'),
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 1),
-          ));
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    final cs = Theme.of(context).colorScheme;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          'Select Product (${widget.selectedStorage.storageCode ?? ''})',
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
-        centerTitle: true,
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(56),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-            child: TextField(
-              controller: _searchController,
-              textInputAction: TextInputAction.search,
-              onSubmitted: _onSearchSubmit,
-              onChanged: (v) => setState(() {}),
-              decoration: InputDecoration(
-                hintText: 'Search stock...',
-                prefixIcon: const Icon(Icons.search, size: 20),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, size: 18),
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() => _searchQuery = '');
-                          _fetch(page: 0);
-                        },
-                      )
-                    : null,
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                    vertical: 10, horizontal: 12),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                filled: true,
-              ),
-            ),
-          ),
-        ),
-      ),
-      body: _isLoading
-          ? const Center(child: DotsLoading())
-          : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(32),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.error_outline,
-                            size: 48,
-                            color: cs.error.withValues(alpha: 0.6)),
-                        const SizedBox(height: 12),
-                        Text(_error!,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(fontSize: 13)),
-                        const SizedBox(height: 16),
-                        FilledButton.icon(
-                            onPressed: () => _fetch(page: 0),
-                            icon: const Icon(Icons.refresh),
-                            label: const Text('Retry')),
-                      ],
-                    ),
-                  ),
-                )
-              : _stocks.isEmpty
-                  ? Center(
-                      child: Text(
-                        _searchQuery.isNotEmpty
-                            ? 'No results for "$_searchQuery"'
-                            : 'No stock items found',
-                        style: TextStyle(
-                            fontSize: 14,
-                            color: cs.onSurface.withValues(alpha: 0.45)),
-                      ),
-                    )
-                  : ListView.builder(
-                      controller: _scrollController,
-                      itemCount: _stocks.length + (_isLoadingMore ? 1 : 0),
-                      itemBuilder: (_, i) {
-                        if (i == _stocks.length) {
-                          return const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 16),
-                            child: Center(child: DotsLoading()),
-                          );
-                        }
-                        final stock = _stocks[i];
-                        return ListTile(
-                          leading: Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              color: primary.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Center(
-                              child: Text(
-                                stock.stockCode.isNotEmpty
-                                    ? stock.stockCode[0].toUpperCase()
-                                    : '?',
-                                style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w700,
-                                    color: primary),
-                              ),
-                            ),
-                          ),
-                          title: Text(stock.stockCode,
-                              style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                  color: primary)),
-                          subtitle: Text(stock.description,
-                              style: const TextStyle(fontSize: 12),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis),
-                          trailing: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: primary.withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              stock.baseUOM,
-                              style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: primary),
-                            ),
-                          ),
-                          onTap: () => _onStockTap(stock),
-                        );
-                      },
-                    ),
-    );
-  }
 }

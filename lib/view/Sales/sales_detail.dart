@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../../api/api_endpoints.dart';
 import '../../api/base_client.dart';
 import '../../common/dots_loading.dart';
+import '../../common/status_badge.dart';
 import '../../common/session_manager.dart';
 import '../../models/sales.dart';
 
@@ -286,11 +287,11 @@ class _SalesDetailPageState extends State<SalesDetailPage>
             child: Row(
               children: [
                 if (doc.isPicking)
-                  _StatusBadge(label: 'Picking', color: Colors.blue),
+                  StatusBadge(label: 'Picking', color: Colors.blue),
                 if (doc.isPicking && doc.isPacking)
                   const SizedBox(width: 8),
                 if (doc.isPacking)
-                  _StatusBadge(label: 'Packing', color: Colors.purple),
+                  StatusBadge(label: 'Packing', color: Colors.purple),
               ],
             ),
           ),
@@ -660,31 +661,6 @@ class _InfoRow extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _StatusBadge extends StatelessWidget {
-  final String label;
-  final Color color;
-  const _StatusBadge({required this.label, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            color: color,
-            letterSpacing: 0.3),
       ),
     );
   }

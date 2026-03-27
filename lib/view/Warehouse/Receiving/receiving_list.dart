@@ -1,33 +1,31 @@
-import 'package:cubehous/view/Common/common_dialog.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:intl/intl.dart';
-import '../../api/api_endpoints.dart';
-import '../../api/base_client.dart';
-import '../../common/date_pill.dart';
-import '../../common/direction_chip.dart';
-import '../../common/dots_loading.dart';
-import '../../common/pagination_bar.dart';
-import '../../common/session_manager.dart';
-import '../../models/collection.dart';
-import 'collection_detail.dart';
-import 'collection_form.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
+import '../../../api/api_endpoints.dart';
+import '../../../api/base_client.dart';
+import '../../../common/date_pill.dart';
+import '../../../common/direction_chip.dart';
+import '../../../common/dots_loading.dart';
+import '../../../common/pagination_bar.dart';
+import '../../../common/session_manager.dart';
+import '../../../models/receiving.dart';
+import 'receiving_detail.dart';
+import 'receiving_form.dart';
 
 const _sortOptions = [
   ('Doc No', 'DocNo'),
   ('Doc Date', 'DocDate'),
-  ('Customer', 'CustomerName'),
-  ('Total', 'PaymentTotal'),
+  ('Supplier', 'SupplierName'),
 ];
 
-class CollectionListPage extends StatefulWidget {
-  const CollectionListPage({super.key});
+class ReceivingListPage extends StatefulWidget {
+  const ReceivingListPage({super.key});
 
   @override
-  State<CollectionListPage> createState() => _CollectionListPageState();
+  State<ReceivingListPage> createState() => _ReceivingListPageState();
 }
 
-class _CollectionListPageState extends State<CollectionListPage> {
+class _ReceivingListPageState extends State<ReceivingListPage> {
   // Session
   String _apiKey = '';
   String _companyGUID = '';
@@ -35,17 +33,18 @@ class _CollectionListPageState extends State<CollectionListPage> {
   String _userSessionID = '';
   List<String> _accessRights = [];
 
-  // Pagination
+  // Settings
   int _itemsPerPage = 20;
+
+  // Data
+  List<ReceivingListItem> _items = [];
+  bool _isLoading = false;
+  String? _error;
+
+  // Pagination
   int _currentPage = 0;
   int _totalPages = 1;
   int _totalCount = 0;
-
-  // Data
-  List<CollectionListItem> _collections = [];
-  bool _isLoading = false;
-  bool _hasDraft = false;
-  String? _error;
 
   // Search & sort
   final _searchController = TextEditingController();
@@ -57,11 +56,9 @@ class _CollectionListPageState extends State<CollectionListPage> {
   DateTime _fromDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
   DateTime _toDate = DateTime.now();
   final _dateFmt = DateFormat('dd/MM/yyyy');
-  late NumberFormat _amtFmt;
 
   final _scrollController = ScrollController();
 
-  // Only count non-default state: sortBy changed OR direction flipped to ascending
   int get _activeFilters =>
       (_sortBy != 'DocNo' ? 1 : 0) + (_sortAsc ? 1 : 0);
 
@@ -86,7 +83,6 @@ class _CollectionListPageState extends State<CollectionListPage> {
       SessionManager.getUserSessionID(),
       SessionManager.getUserAccessRight(),
       SessionManager.getItemsPerPage(),
-      SessionManager.getSalesDecimalPoint(),
     ]);
     _apiKey = results[0] as String;
     _companyGUID = results[1] as String;
@@ -94,25 +90,147 @@ class _CollectionListPageState extends State<CollectionListPage> {
     _userSessionID = results[3] as String;
     _accessRights = results[4] as List<String>;
     _itemsPerPage = results[5] as int;
-    final dp = results[6] as int;
-    _amtFmt = NumberFormat('#,##0.${'0' * dp}');
-    await Future.wait([
-      _fetchCollections(page: 0),
-      _refreshDraftFlag(),
-    ]);
-  }
-
-  Future<void> _refreshDraftFlag() async {
-    final has = await SessionManager.hasCollectionDraft();
-    if (mounted) setState(() => _hasDraft = has);
+    await _fetchReceivings(page: 0);
   }
 
   bool _hasAccess(String right) => _accessRights.contains(right);
 
-  Future<void> _fetchCollections({required int page}) async {
-    _apiKey = await SessionManager.getApiKey();
-    _companyGUID = await SessionManager.getCompanyGUID();
-    _userSessionID = await SessionManager.getUserSessionID();
+  void _showNoAccessDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Access Denied'),
+        content: const Text(
+            'You do not have the access right to perform this action.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<bool?> _confirmDelete(String docNo) {
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          contentPadding: EdgeInsets.zero,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 20),
+              Container(
+                width: 80,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.10),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.delete_outline_rounded,
+                    size: 32, color: Colors.red),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Delete Receiving',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  'Are you sure you want to delete\n$docNo?',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: cs.onSurface.withValues(alpha: 0.6),
+                      height: 1.5),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Divider(height: 1, color: cs.outline.withValues(alpha: 0.15)),
+              IntrinsicHeight(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.only(
+                                bottomLeft: Radius.circular(20)),
+                          ),
+                        ),
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: Text('Cancel',
+                            style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: cs.onSurface.withValues(alpha: 0.6))),
+                      ),
+                    ),
+                    VerticalDivider(
+                        width: 1,
+                        color: cs.outline.withValues(alpha: 0.15)),
+                    Expanded(
+                      child: TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.only(
+                                bottomRight: Radius.circular(20)),
+                          ),
+                        ),
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('Delete',
+                            style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.red)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<bool> _deleteReceiving(int docID) async {
+    try {
+      await BaseClient.post(
+        ApiEndpoints.removeReceiving,
+        body: {
+          'apiKey': _apiKey,
+          'companyGUID': _companyGUID,
+          'userID': _userID,
+          'userSessionID': _userSessionID,
+          'docID': docID,
+        },
+      );
+      return true;
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text('Failed to delete: $e'),
+            behavior: SnackBarBehavior.floating,
+          ));
+      }
+      return false;
+    }
+  }
+
+  Future<void> _fetchReceivings({required int page}) async {
     if (_isLoading) return;
     setState(() {
       _isLoading = true;
@@ -120,7 +238,7 @@ class _CollectionListPageState extends State<CollectionListPage> {
     });
     try {
       final response = await BaseClient.post(
-        ApiEndpoints.getCollectionList,
+        ApiEndpoints.getReceivingList,
         body: {
           'apiKey': _apiKey,
           'companyGUID': _companyGUID,
@@ -138,17 +256,20 @@ class _CollectionListPageState extends State<CollectionListPage> {
       );
 
       final result =
-          CollectionResponse.fromJson(response as Map<String, dynamic>);
+          ReceivingResponse.fromJson(response as Map<String, dynamic>);
       final items = result.data ?? [];
-      final totalRecord = result.pagination?.totalRecord ?? items.length;
-      final pageSize = result.pagination?.pageSize ?? _itemsPerPage;
+      final totalRecord =
+          result.pagination?.totalRecord ?? items.length;
+      final pageSize =
+          result.pagination?.pageSize ?? _itemsPerPage;
 
       if (mounted) {
         setState(() {
-          _collections = items;
+          _items = items;
           _currentPage = page;
           _totalCount = totalRecord;
-          _totalPages = pageSize > 0 ? (totalRecord / pageSize).ceil() : 1;
+          _totalPages =
+              pageSize > 0 ? (totalRecord / pageSize).ceil() : 1;
           if (_totalPages < 1) _totalPages = 1;
         });
         if (_scrollController.hasClients) _scrollController.jumpTo(0);
@@ -160,42 +281,13 @@ class _CollectionListPageState extends State<CollectionListPage> {
     }
   }
 
+  Future<void> _onRefresh() => _fetchReceivings(page: 0);
+
   void _onSearchSubmit(String value) {
     setState(() => _searchQuery = value.trim());
-    _fetchCollections(page: 0);
+    _fetchReceivings(page: 0);
   }
 
-  Future<bool> _deleteCollection(int docID) async {
-    _apiKey = await SessionManager.getApiKey();
-    _companyGUID = await SessionManager.getCompanyGUID();
-    _userSessionID = await SessionManager.getUserSessionID();
-    try {
-      await BaseClient.post(
-        ApiEndpoints.removeCollection,
-        body: {
-          'apiKey': _apiKey,
-          'companyGUID': _companyGUID,
-          'userID': _userID,
-          'userSessionID': _userSessionID,
-          'docID': docID,
-        },
-      );
-      return true;
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(
-            content: Text(e is BadRequestException ? e.message : 'Failed to delete: $e'),
-            behavior: SnackBarBehavior.floating,
-          ));
-      }
-      return false;
-    }
-  }
-
-  Future<void> _onRefresh() => _fetchCollections(page: 0);
-  
   Future<void> _pickFromDate() async {
     final picked = await showDatePicker(
       context: context,
@@ -205,7 +297,7 @@ class _CollectionListPageState extends State<CollectionListPage> {
     );
     if (picked != null) {
       setState(() => _fromDate = picked);
-      _fetchCollections(page: 0);
+      _fetchReceivings(page: 0);
     }
   }
 
@@ -218,7 +310,7 @@ class _CollectionListPageState extends State<CollectionListPage> {
     );
     if (picked != null) {
       setState(() => _toDate = picked);
-      _fetchCollections(page: 0);
+      _fetchReceivings(page: 0);
     }
   }
 
@@ -235,105 +327,63 @@ class _CollectionListPageState extends State<CollectionListPage> {
             _sortBy = sortBy;
             _sortAsc = sortAsc;
           });
-          _fetchCollections(page: 0);
+          _fetchReceivings(page: 0);
         },
         onReset: () {
           setState(() {
             _sortBy = 'DocNo';
             _sortAsc = false;
           });
-          _fetchCollections(page: 0);
+          _fetchReceivings(page: 0);
         },
       ),
     );
   }
 
-  Future<void> _onEditTap(CollectionListItem item) async {
-    _apiKey = await SessionManager.getApiKey();
-    _companyGUID = await SessionManager.getCompanyGUID();
-    _userSessionID = await SessionManager.getUserSessionID();
-    if (!_hasAccess('COLLECT_EDIT')) {
-      if (!mounted) return;
-      CommonDialog.ShowNoAccessRightDialog(context);
+  Future<void> _onDeleteTap(ReceivingListItem item) async {
+    if (!_hasAccess('RECEIVING_DELETE')) {
+      _showNoAccessDialog();
       return;
     }
-    CollectionDoc? doc;
-    try {
-      final json = await BaseClient.post(
-        ApiEndpoints.getCollection,
-        body: {
-          'apiKey': _apiKey,
-          'companyGUID': _companyGUID,
-          'userID': _userID,
-          'userSessionID': _userSessionID,
-          'docID': item.docID,
-        },
-      );
-      doc = CollectionDoc.fromJson(json as Map<String, dynamic>);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(
-            content: Text('Failed to load collection: $e'),
-            behavior: SnackBarBehavior.floating,
-          ));
-      }
-      return;
-    }
-    if (!mounted) return;
-    final updated = await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => CollectionFormPage(initialDoc: doc),
-      ),
-    );
-    if (updated == true && mounted) _fetchCollections(page: _currentPage);
-  }
-
-  Future<void> _onDeleteTap(CollectionListItem item) async {
-    if (!_hasAccess('COLLECT_DELETE')) {
-      CommonDialog.ShowNoAccessRightDialog(context);
-      return;
-    }
-    final confirmed = await CommonDialog.ConfirmDeleteDialog(context, item.docNo, 'Collection');
+    final confirmed = await _confirmDelete(item.docNo);
     if (confirmed != true) return;
-    final ok = await _deleteCollection(item.docID);
+    final ok = await _deleteReceiving(item.docID);
     if (ok && mounted) {
-      setState(() => _collections.removeWhere((e) => e.docID == item.docID));
+      setState(() => _items.removeWhere((e) => e.docID == item.docID));
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(const SnackBar(
-          content: Text('Collection deleted'),
+          content: Text('Receiving deleted'),
           behavior: SnackBarBehavior.floating,
         ));
     }
   }
 
-  
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Collections',
+        title: const Text('Receiving',
             style: TextStyle(fontWeight: FontWeight.w600)),
         centerTitle: true,
         actions: [
           IconButton(
             icon: const Icon(Icons.add),
-            tooltip: 'New Collection',
+            tooltip: 'New Receiving',
             onPressed: () async {
-              if (!_hasAccess('COLLECT_ADD')) {
-                CommonDialog.ShowNoAccessRightDialog(context);
+              if (!_hasAccess('RECEIVING_ADD')) {
+                _showNoAccessDialog();
                 return;
               }
-              final created = await Navigator.push<bool>(
+              final result = await Navigator.push<bool>(
                 context,
-                MaterialPageRoute(builder: (_) => const CollectionFormPage()),
+                MaterialPageRoute(
+                    builder: (_) => const ReceivingFormPage()),
               );
-              if (created == true) _fetchCollections(page: 0);
-              _refreshDraftFlag();
+              if (result == true && mounted) {
+                _fetchReceivings(page: _currentPage);
+              }
             },
           ),
         ],
@@ -346,14 +396,16 @@ class _CollectionListPageState extends State<CollectionListPage> {
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
                 child: Row(
                   children: [
-                    Expanded(child: DatePill(
+                    Expanded(
+                        child: DatePill(
                       label: 'From',
                       date: _dateFmt.format(_fromDate),
                       onTap: _pickFromDate,
                       primary: primary,
                     )),
                     const SizedBox(width: 8),
-                    Expanded(child: DatePill(
+                    Expanded(
+                        child: DatePill(
                       label: 'To',
                       date: _dateFmt.format(_toDate),
                       onTap: _pickToDate,
@@ -375,14 +427,15 @@ class _CollectionListPageState extends State<CollectionListPage> {
                         onSubmitted: _onSearchSubmit,
                         onChanged: (v) => setState(() {}),
                         decoration: InputDecoration(
-                          hintText: 'Search collections...',
+                          hintText: 'Search receivings...',
                           suffixIcon: _searchController.text.isNotEmpty
                               ? IconButton(
-                                  icon: const Icon(Icons.clear, size: 18),
+                                  icon:
+                                      const Icon(Icons.clear, size: 18),
                                   onPressed: () {
                                     _searchController.clear();
                                     setState(() => _searchQuery = '');
-                                    _fetchCollections(page: 0);
+                                    _fetchReceivings(page: 0);
                                   },
                                 )
                               : null,
@@ -398,13 +451,15 @@ class _CollectionListPageState extends State<CollectionListPage> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    // Search button
                     Material(
-                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(12),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(12),
-                        onTap: () => _onSearchSubmit(_searchController.text),
+                        onTap: () =>
+                            _onSearchSubmit(_searchController.text),
                         child: const SizedBox(
                           width: 44,
                           height: 44,
@@ -413,12 +468,13 @@ class _CollectionListPageState extends State<CollectionListPage> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    // Filter / sort button
                     Stack(
                       alignment: Alignment.center,
                       children: [
                         Material(
-                          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(12),
                           child: InkWell(
                             borderRadius: BorderRadius.circular(12),
@@ -426,7 +482,8 @@ class _CollectionListPageState extends State<CollectionListPage> {
                             child: const SizedBox(
                               width: 44,
                               height: 44,
-                              child: Icon(Icons.tune_outlined, size: 20),
+                              child:
+                                  Icon(Icons.tune_outlined, size: 20),
                             ),
                           ),
                         ),
@@ -470,24 +527,11 @@ class _CollectionListPageState extends State<CollectionListPage> {
     if (_error != null) return _buildError();
     final primary = Theme.of(context).colorScheme.primary;
     final start = _currentPage * _itemsPerPage + 1;
-    final end = ((_currentPage + 1) * _itemsPerPage).clamp(0, _totalCount);
+    final end =
+        ((_currentPage + 1) * _itemsPerPage).clamp(0, _totalCount);
     return Column(
       children: [
-        if (_hasDraft) _DraftBanner(
-          onContinue: () async {
-            await Navigator.push<bool>(
-              context,
-              MaterialPageRoute(builder: (_) => const CollectionFormPage()),
-            );
-            _fetchCollections(page: 0);
-            _refreshDraftFlag();
-          },
-          onDiscard: () async {
-            await SessionManager.clearCollectionDraft();
-            setState(() => _hasDraft = false);
-          },
-        ),
-        if (_collections.isEmpty)
+        if (_items.isEmpty)
           Expanded(child: _buildEmpty())
         else
           Expanded(child: _buildList(start: start, end: end)),
@@ -497,10 +541,10 @@ class _CollectionListPageState extends State<CollectionListPage> {
           isLoading: _isLoading,
           primary: primary,
           onPrev: _currentPage > 0
-              ? () => _fetchCollections(page: _currentPage - 1)
+              ? () => _fetchReceivings(page: _currentPage - 1)
               : null,
           onNext: _currentPage < _totalPages - 1
-              ? () => _fetchCollections(page: _currentPage + 1)
+              ? () => _fetchReceivings(page: _currentPage + 1)
               : null,
         ),
       ],
@@ -513,9 +557,9 @@ class _CollectionListPageState extends State<CollectionListPage> {
       child: SlidableAutoCloseBehavior(
         child: ListView.builder(
           controller: _scrollController,
-          itemCount: _collections.length + 1,
+          itemCount: _items.length + 1,
           itemBuilder: (context, i) {
-            if (i == _collections.length) {
+            if (i == _items.length) {
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 child: Center(
@@ -532,53 +576,48 @@ class _CollectionListPageState extends State<CollectionListPage> {
                 ),
               );
             }
-            final item = _collections[i];
+            final item = _items[i];
             return Slidable(
               key: ValueKey(item.docID),
               endActionPane: ActionPane(
                 motion: const DrawerMotion(),
-                extentRatio: 0.48,
+                extentRatio: 0.26,
                 children: [
                   CustomSlidableAction(
-                    onPressed: (_) => _onEditTap(item),
-                    backgroundColor:const Color(0xFF1565C0).withValues(alpha: 0.12),
-                    child: const Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.edit_outlined, size: 26, color: Color(0xFF1565C0)),
-                        SizedBox(height: 4),
-                        Text('Edit',
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF1565C0))),
-                      ],
-                    ),
-                  ),
-                  CustomSlidableAction(
                     onPressed: (_) => _onDeleteTap(item),
-                    backgroundColor: Colors.red.withValues(alpha: 0.12),
+                    backgroundColor:
+                        Colors.red.withValues(alpha: 0.12),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: const [
-                        Icon(Icons.delete_outline, size: 26, color: Colors.red),
+                        Icon(Icons.delete_outline,
+                            size: 26, color: Colors.red),
                         SizedBox(height: 4),
-                        Text('Delete', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.red)),
+                        Text('Delete',
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.red)),
                       ],
                     ),
                   ),
                 ],
               ),
-              child: _CollectionTile(
+              child: _ReceivingTile(
                 item: item,
-                amtFmt: _amtFmt,
                 dateFmt: _dateFmt,
-                onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => CollectionDetailPage(docID: item.docID),
-                ),
-              ),
+                onTap: () async {
+                  final result = await Navigator.push<bool>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          ReceivingDetailPage(docID: item.docID),
+                    ),
+                  );
+                  if (result == true && mounted) {
+                    _fetchReceivings(page: _currentPage);
+                  }
+                },
               ),
             );
           },
@@ -601,8 +640,9 @@ class _CollectionListPageState extends State<CollectionListPage> {
                     .error
                     .withValues(alpha: 0.6)),
             const SizedBox(height: 14),
-            const Text('Failed to load collections',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+            const Text('Failed to load receivings',
+                style: TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             Text(_error ?? '',
                 textAlign: TextAlign.center,
@@ -614,7 +654,7 @@ class _CollectionListPageState extends State<CollectionListPage> {
                         .withValues(alpha: 0.4))),
             const SizedBox(height: 16),
             FilledButton.icon(
-              onPressed: () => _fetchCollections(page: 0),
+              onPressed: () => _fetchReceivings(page: 0),
               icon: const Icon(Icons.refresh),
               label: const Text('Retry'),
             ),
@@ -631,7 +671,7 @@ class _CollectionListPageState extends State<CollectionListPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.payments_outlined,
+            Icon(Icons.move_to_inbox_outlined,
                 size: 52,
                 color: Theme.of(context)
                     .colorScheme
@@ -641,7 +681,7 @@ class _CollectionListPageState extends State<CollectionListPage> {
             Text(
               _searchQuery.isNotEmpty
                   ? 'No results for "$_searchQuery"'
-                  : 'No collections found',
+                  : 'No receivings found',
               style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
@@ -658,18 +698,16 @@ class _CollectionListPageState extends State<CollectionListPage> {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Collection Tile
+// Receiving tile
 // ─────────────────────────────────────────────────────────────────────
 
-class _CollectionTile extends StatelessWidget {
-  final CollectionListItem item;
-  final NumberFormat amtFmt;
+class _ReceivingTile extends StatelessWidget {
+  final ReceivingListItem item;
   final DateFormat dateFmt;
   final VoidCallback onTap;
 
-  const _CollectionTile({
+  const _ReceivingTile({
     required this.item,
-    required this.amtFmt,
     required this.dateFmt,
     required this.onTap,
   });
@@ -688,7 +726,8 @@ class _CollectionTile extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
           border: Border(
             bottom: BorderSide(
@@ -706,13 +745,15 @@ class _CollectionTile extends StatelessWidget {
               width: 44,
               height: 44,
               decoration: BoxDecoration(
-                color: primary.withValues(alpha: 0.1),
+                color: item.isVoid
+                    ? Colors.red.withValues(alpha: 0.1)
+                    : primary.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
-                Icons.payments_outlined,
+                Icons.move_to_inbox_outlined,
                 size: 22,
-                color: primary,
+                color: item.isVoid ? Colors.red : primary,
               ),
             ),
             const SizedBox(width: 14),
@@ -721,7 +762,7 @@ class _CollectionTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Row 1: DocNo | Date
+                  // Row 1: DocNo + VOID badge | Date
                   Row(
                     children: [
                       Text(
@@ -730,9 +771,11 @@ class _CollectionTile extends StatelessWidget {
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
                           color: primary,
+                          letterSpacing: 0.2,
                         ),
                       ),
                       const SizedBox(width: 6),
+                      if (item.isVoid) _VoidBadge(),
                       const Spacer(),
                       Text(
                         docDate != null
@@ -743,43 +786,46 @@ class _CollectionTile extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 4),
-                  // Row 2: Customer name
+                  // Row 2: Supplier name
                   Text(
-                    item.customerName,
+                    item.supplierName,
                     style: const TextStyle(
                         fontSize: 14, fontWeight: FontWeight.w500),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 4),
-                  // Row 3: Payment type chip | Total
+                  // Row 3: PO ref + PUT AWAY badge
                   Row(
                     children: [
-                      if ((item.paymentType ?? '').isNotEmpty) ...[
+                      if ((item.purchaseDocNo ?? '').isNotEmpty)
+                        Text(
+                          'PO: ${item.purchaseDocNo}',
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: muted),
+                        )
+                      else
+                        const SizedBox.shrink(),
+                      const Spacer(),
+                      if (item.isPutAway)
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 2),
+                              horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: primary.withValues(alpha: 0.08),
-                            borderRadius: BorderRadius.circular(10),
+                            color: Colors.green.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(4),
                           ),
-                          child: Text(
-                            item.paymentType!,
+                          child: const Text(
+                            'PUT AWAY',
                             style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                              color: primary,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.green,
+                              letterSpacing: 0.5,
                             ),
                           ),
                         ),
-                      ] else
-                        const SizedBox.shrink(),
-                      const Spacer(),
-                      Text(
-                        'RM ${amtFmt.format(item.paymentTotal)}',
-                        style: const TextStyle(
-                            fontSize: 13, fontWeight: FontWeight.w700),
-                      ),
                     ],
                   ),
                 ],
@@ -792,66 +838,23 @@ class _CollectionTile extends StatelessWidget {
   }
 }
 
-
-class _DraftBanner extends StatelessWidget {
-  final VoidCallback onContinue;
-  final VoidCallback onDiscard;
-
-  const _DraftBanner({required this.onContinue, required this.onDiscard});
-
+class _VoidBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
     return Container(
-      margin: const EdgeInsets.fromLTRB(12, 10, 12, 4),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: primary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: primary.withValues(alpha: 0.2)),
+        color: Colors.red.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(4),
       ),
-      child: Row(
-        children: [
-          Icon(Icons.edit_note_rounded, size: 22, color: primary),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Unsaved Draft',
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: primary)),
-                Text('You have a collection in progress.',
-                    style: TextStyle(
-                        fontSize: 11,
-                        color: primary.withValues(alpha: 0.7))),
-              ],
-            ),
-          ),
-          TextButton(
-            style: TextButton.styleFrom(
-              foregroundColor: primary,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-            onPressed: onDiscard,
-            child: const Text('Discard', style: TextStyle(fontSize: 12)),
-          ),
-          const SizedBox(width: 4),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-            ),
-            onPressed: onContinue,
-            child: const Text('Continue'),
-          ),
-        ],
+      child: const Text(
+        'VOID',
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w800,
+          color: Colors.red,
+          letterSpacing: 0.5,
+        ),
       ),
     );
   }
@@ -901,7 +904,8 @@ class _SortSheetState extends State<_SortSheet> {
       expand: false,
       builder: (_, scrollCtrl) => Material(
         color: surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius:
+            const BorderRadius.vertical(top: Radius.circular(20)),
         child: Column(
           children: [
             const SizedBox(height: 12),
@@ -949,7 +953,7 @@ class _SortSheetState extends State<_SortSheet> {
                           color: primary)),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
-                    initialValue: _sortBy,
+                    value: _sortBy,
                     decoration: InputDecoration(
                       border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10)),
@@ -958,8 +962,8 @@ class _SortSheetState extends State<_SortSheet> {
                           horizontal: 12, vertical: 12),
                     ),
                     items: _sortOptions
-                        .map((o) =>
-                            DropdownMenuItem(value: o.$2, child: Text(o.$1)))
+                        .map((o) => DropdownMenuItem(
+                            value: o.$2, child: Text(o.$1)))
                         .toList(),
                     onChanged: (v) => setState(() => _sortBy = v!),
                   ),
@@ -977,7 +981,8 @@ class _SortSheetState extends State<_SortSheet> {
                           label: 'Ascending',
                           icon: Icons.arrow_upward_rounded,
                           selected: _sortAsc,
-                          onTap: () => setState(() => _sortAsc = true),
+                          onTap: () =>
+                              setState(() => _sortAsc = true),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -986,7 +991,8 @@ class _SortSheetState extends State<_SortSheet> {
                           label: 'Descending',
                           icon: Icons.arrow_downward_rounded,
                           selected: !_sortAsc,
-                          onTap: () => setState(() => _sortAsc = false),
+                          onTap: () =>
+                              setState(() => _sortAsc = false),
                         ),
                       ),
                     ],
@@ -998,14 +1004,16 @@ class _SortSheetState extends State<_SortSheet> {
                       style: FilledButton.styleFrom(
                         minimumSize: const Size.fromHeight(48),
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
+                            borderRadius:
+                                BorderRadius.circular(12)),
                       ),
                       onPressed: () {
                         Navigator.pop(context);
                         widget.onApply(_sortBy, _sortAsc);
                       },
                       child: const Text('Apply',
-                          style: TextStyle(fontWeight: FontWeight.w600)),
+                          style:
+                              TextStyle(fontWeight: FontWeight.w600)),
                     ),
                   ),
                 ],

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../api/api_endpoints.dart';
 import '../../../api/base_client.dart';
 import '../../../common/dots_loading.dart';
+import '../../../common/status_badge.dart';
 import '../../../common/session_manager.dart';
 import '../../../models/location.dart';
 import 'location_detail.dart';
@@ -25,6 +26,7 @@ class _LocationListPageState extends State<LocationListPage> {
   String? _error;
 
   final _searchController = TextEditingController();
+  final _scrollController = ScrollController();
   String _searchQuery = '';
 
   @override
@@ -36,6 +38,7 @@ class _LocationListPageState extends State<LocationListPage> {
   @override
   void dispose() {
     _searchController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -106,8 +109,19 @@ class _LocationListPageState extends State<LocationListPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Locations',
-            style: TextStyle(fontWeight: FontWeight.w600)),
+        title: GestureDetector(
+          onDoubleTap: () {
+            if (_scrollController.hasClients) {
+              _scrollController.animateTo(
+                0,
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOut,
+              );
+            }
+          },
+          child: const Text('Locations',
+              style: TextStyle(fontWeight: FontWeight.w600)),
+        ),
         centerTitle: true,
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(56),
@@ -152,6 +166,7 @@ class _LocationListPageState extends State<LocationListPage> {
     return RefreshIndicator(
       onRefresh: _fetchLocations,
       child: ListView.builder(
+        controller: _scrollController,
         itemCount: _filtered.length,
         itemBuilder: (context, i) => _LocationTile(
           location: _filtered[i],
@@ -300,7 +315,7 @@ class _LocationTile extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      _StatusBadge(active: location.isActive),
+                      StatusBadge.active(location.isActive),
                     ],
                   ),
                   const SizedBox(height: 2),
@@ -349,42 +364,6 @@ class _LocationAvatar extends StatelessWidget {
           fontWeight: FontWeight.w700,
           color: color,
         ),
-      ),
-    );
-  }
-}
-
-class _StatusBadge extends StatelessWidget {
-  final bool active;
-  const _StatusBadge({required this.active});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = active ? Colors.green : Colors.red;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 5,
-            height: 5,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            active ? 'Active' : 'Inactive',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: color,
-            ),
-          ),
-        ],
       ),
     );
   }

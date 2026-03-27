@@ -1,13 +1,15 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../api/api_endpoints.dart';
-import '../../api/base_client.dart';
-import '../../common/dots_loading.dart';
-import '../../common/my_color.dart';
-import '../../common/session_manager.dart';
-import '../../models/stock.dart';
-import '../../models/stock_filter.dart';
+import '../../../api/api_endpoints.dart';
+import '../../../api/base_client.dart';
+import '../../../common/direction_chip.dart';
+import '../../../common/dots_loading.dart';
+import '../../../common/pagination_bar.dart';
+import '../../../common/my_color.dart';
+import '../../../common/session_manager.dart';
+import '../../../models/stock.dart';
+import '../../../models/stock_filter.dart';
 import 'stock_detail.dart';
 
 // ─────────────────────────────────────────────
@@ -231,9 +233,34 @@ class _StockItemPageState extends State<StockItemPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Stock Item',
-            style: TextStyle(fontWeight: FontWeight.w600)),
+        title: GestureDetector(
+          onDoubleTap: () {
+            if (_scrollController.hasClients) {
+              _scrollController.animateTo(
+                0,
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOut,
+              );
+            }
+          },
+          child: const Text('Stock Item',
+              style: TextStyle(fontWeight: FontWeight.w600)),
+        ),
         centerTitle: true,
+        actions: [
+          _ModeButton(
+            icon: Icons.grid_view_rounded,
+            active: _imageMode == 'show',
+            onTap: () => _setImageMode('show'),
+          ),
+          const SizedBox(width: 4),
+          _ModeButton(
+            icon: Icons.view_list_outlined,
+            active: _imageMode == 'noShow',
+            onTap: () => _setImageMode('noShow'),
+          ),
+          const SizedBox(width: 8),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(56),
           child: Padding(
@@ -329,38 +356,18 @@ class _StockItemPageState extends State<StockItemPage> {
     final labelColor = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5);
     final primary = Theme.of(context).colorScheme.primary;
 
+    final start = _totalCount == 0 ? 0 : _currentPage * _itemsPerPage + 1;
+    final end = ((_currentPage + 1) * _itemsPerPage).clamp(0, _totalCount);
+
     return Column(
       children: [
-        // Info bar: count + display mode toggle
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 12, 4),
-          child: Row(
-            children: [
-              Text(
-                '$_totalCount item${_totalCount == 1 ? '' : 's'} found',
-                style: TextStyle(fontSize: 12, color: labelColor),
-              ),
-              const Spacer(),
-              // Display mode toggle
-              _ModeButton(
-                icon: Icons.grid_view_rounded,
-                active: _imageMode == 'show',
-                onTap: () => _setImageMode('show'),
-              ),
-              const SizedBox(width: 4),
-              _ModeButton(
-                icon: Icons.view_list_outlined,
-                active: _imageMode == 'noShow',
-                onTap: () => _setImageMode('noShow'),
-              ),
-            ],
-          ),
-        ),
         Expanded(
-          child: _imageMode == 'show' ? _buildGrid() : _buildList(),
+          child: _imageMode == 'show'
+              ? _buildGrid(start: start, end: end, labelColor: labelColor)
+              : _buildList(start: start, end: end, labelColor: labelColor),
         ),
         // Pagination bar
-        _PaginationBar(
+        PaginationBar(
           currentPage: _currentPage,
           totalPages: _totalPages,
           isLoading: _isLoading,
@@ -374,36 +381,64 @@ class _StockItemPageState extends State<StockItemPage> {
 
   // ── Grid View ─────────────────────────────────
 
-  Widget _buildGrid() {
-    return GridView.builder(
+  Widget _buildGrid({required int start, required int end, required Color labelColor}) {
+    return CustomScrollView(
       controller: _scrollController,
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: MediaQuery.of(context).size.width >= 600 ? 3 : 2,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
-        mainAxisExtent: 208,
-      ),
-      itemCount: _stocks.length,
-      itemBuilder: (_, i) => _GridCard(
-        stock: _stocks[i],
-        priceFormatter: _priceFormatter,
-      ),
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+          sliver: SliverGrid(
+            delegate: SliverChildBuilderDelegate(
+              (_, i) => _GridCard(stock: _stocks[i], priceFormatter: _priceFormatter),
+              childCount: _stocks.length,
+            ),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: MediaQuery.of(context).size.width >= 600 ? 3 : 2,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              mainAxisExtent: 180,
+            ),
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(0, 14, 0, 24),
+            child: Center(
+              child: Text(
+                'Showing $start–$end of $_totalCount item${_totalCount == 1 ? '' : 's'}',
+                style: TextStyle(fontSize: 12, color: labelColor),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
   // ── List View ─────────────────────────────────
 
-  Widget _buildList() {
-    return ListView.separated(
+  Widget _buildList({required int start, required int end, required Color labelColor}) {
+    return ListView.builder(
       controller: _scrollController,
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-      itemCount: _stocks.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
-      itemBuilder: (_, i) => _ListCard(
-        stock: _stocks[i],
-        priceFormatter: _priceFormatter,
-      ),
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+      itemCount: _stocks.length + 1,
+      itemBuilder: (_, i) {
+        if (i == _stocks.length) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(0, 14, 0, 24),
+            child: Center(
+              child: Text(
+                'Showing $start–$end of $_totalCount item${_totalCount == 1 ? '' : 's'}',
+                style: TextStyle(fontSize: 12, color: labelColor),
+              ),
+            ),
+          );
+        }
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: _ListCard(stock: _stocks[i], priceFormatter: _priceFormatter),
+        );
+      },
     );
   }
 }
@@ -441,14 +476,14 @@ class _GridCard extends StatelessWidget {
               borderRadius:
                   const BorderRadius.vertical(top: Radius.circular(14)),
               child: SizedBox(
-                height: 110,
+                height: 90,
                 width: double.infinity,
                 child: _StockImage(base64: stock.image),
               ),
             ),
             // Info
             Padding(
-              padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -472,10 +507,10 @@ class _GridCard extends StatelessWidget {
                           .onSurface
                           .withValues(alpha: 0.7),
                     ),
-                    maxLines: 2,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
                   Row(
                     children: [
                       Expanded(
@@ -492,9 +527,10 @@ class _GridCard extends StatelessWidget {
                       ),
                       Text(
                         priceFormatter.format(stock.baseUOMPrice1),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
+                          color: primary,
                         ),
                       ),
                     ],
@@ -536,80 +572,80 @@ class _ListCard extends StatelessWidget {
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          stock.stockCode,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: primary,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      stock.description,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withValues(alpha: 0.75),
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (stock.desc2.isNotEmpty) ...[
-                      const SizedBox(height: 1),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Text(
-                        stock.desc2,
+                        stock.stockCode,
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: primary,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        stock.description,
+                        style: TextStyle(
+                          fontSize: 13,
                           color: Theme.of(context)
                               .colorScheme
                               .onSurface
-                              .withValues(alpha: 0.45),
+                              .withValues(alpha: 0.75),
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
+                      if (stock.desc2.isNotEmpty) ...[
+                        const SizedBox(height: 1),
+                        Text(
+                          stock.desc2,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withValues(alpha: 0.45),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
                     ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      stock.baseUOM,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.45),
+                      ),
+                    ),
+                    Text(
+                      priceFormatter.format(stock.baseUOMPrice1),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: primary,
+                      ),
+                    ),
                   ],
                 ),
-              ),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    priceFormatter.format(stock.baseUOMPrice1),
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    stock.baseUOM,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.45),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -743,76 +779,6 @@ class _ModeButton extends StatelessWidget {
             color: active
                 ? primary
                 : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3)),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────
-// Pagination bar
-// ─────────────────────────────────────────────
-
-class _PaginationBar extends StatelessWidget {
-  final int currentPage;
-  final int totalPages;
-  final bool isLoading;
-  final Color primary;
-  final VoidCallback? onPrev;
-  final VoidCallback? onNext;
-
-  const _PaginationBar({
-    required this.currentPage,
-    required this.totalPages,
-    required this.isLoading,
-    required this.primary,
-    required this.onPrev,
-    required this.onNext,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    if (totalPages <= 1) return const SizedBox.shrink();
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(
-            color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.15),
-          ),
-        ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.chevron_left),
-            onPressed: isLoading ? null : onPrev,
-            style: IconButton.styleFrom(
-              foregroundColor: onPrev != null ? primary : null,
-            ),
-          ),
-          const SizedBox(width: 8),
-          if (isLoading)
-            const DotsLoading(dotSize: 6)
-          else
-            Text(
-              'Page ${currentPage + 1} of $totalPages',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: primary,
-              ),
-            ),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.chevron_right),
-            onPressed: isLoading ? null : onNext,
-            style: IconButton.styleFrom(
-              foregroundColor: onNext != null ? primary : null,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -1029,7 +995,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                             _label('Sort By', primary),
                             const SizedBox(height: 8),
                             DropdownButtonFormField<String>(
-                              initialValue: _sortBy,
+                              value: _sortBy,
                               decoration: InputDecoration(
                                 border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(10)),
@@ -1051,7 +1017,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                             Row(
                               children: [
                                 Expanded(
-                                  child: _DirectionChip(
+                                  child: DirectionChip(
                                     label: 'Ascending',
                                     icon: Icons.arrow_upward_rounded,
                                     selected: _sortAsc,
@@ -1060,7 +1026,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                                 ),
                                 const SizedBox(width: 10),
                                 Expanded(
-                                  child: _DirectionChip(
+                                  child: DirectionChip(
                                     label: 'Descending',
                                     icon: Icons.arrow_downward_rounded,
                                     selected: !_sortAsc,
@@ -1205,51 +1171,6 @@ class _FilterSheetState extends State<_FilterSheet> {
           visualDensity: VisualDensity.compact,
         );
       }).toList(),
-    );
-  }
-}
-
-class _DirectionChip extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _DirectionChip({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(
-          color: selected ? primary.withValues(alpha: 0.1) : Colors.transparent,
-          border: Border.all(
-              color: selected ? primary : Theme.of(context).colorScheme.outline.withValues(alpha: 0.4)),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 16, color: selected ? primary : null),
-            const SizedBox(width: 6),
-            Text(label,
-                style: TextStyle(
-                    fontSize: 13,
-                    fontWeight:
-                        selected ? FontWeight.w600 : FontWeight.normal,
-                    color: selected ? primary : null)),
-          ],
-        ),
-      ),
     );
   }
 }

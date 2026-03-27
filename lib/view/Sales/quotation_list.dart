@@ -1,9 +1,13 @@
+import 'package:cubehous/view/Common/common_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import '../../api/api_endpoints.dart';
 import '../../api/base_client.dart';
+import '../../common/date_pill.dart';
+import '../../common/direction_chip.dart';
 import '../../common/dots_loading.dart';
+import '../../common/pagination_bar.dart';
 import '../../common/session_manager.dart';
 import '../../models/quotation.dart';
 import 'quotation_detail.dart';
@@ -30,22 +34,18 @@ class _QuotationListPageState extends State<QuotationListPage> {
   int _userID = 0;
   String _userSessionID = '';
   List<String> _accessRights = [];
-
-  // Settings
+  
+  // Pagination
   int _itemsPerPage = 20;
-
-  // Draft
-  bool _hasDraft = false;
+  int _currentPage = 0;
+  int _totalPages = 1;
+  int _totalCount = 0;
 
   // Data
   List<QuotationListItem> _quotations = [];
   bool _isLoading = false;
+  bool _hasDraft = false;
   String? _error;
-
-  // Pagination
-  int _currentPage = 0;
-  int _totalPages = 1;
-  int _totalCount = 0;
 
   // Search & sort
   final _searchController = TextEditingController();
@@ -57,12 +57,11 @@ class _QuotationListPageState extends State<QuotationListPage> {
   DateTime _fromDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
   DateTime _toDate = DateTime.now();
   final _dateFmt = DateFormat('dd/MM/yyyy');
-  final _amtFmt = NumberFormat('#,##0.00');
+  late NumberFormat _amtFmt;
 
   final _scrollController = ScrollController();
 
-  int get _activeFilters =>
-      (_sortBy != 'DocNo' ? 1 : 0) + (!_sortAsc ? 0 : 1);
+  int get _activeFilters => (_sortBy != 'DocNo' ? 1 : 0) + (!_sortAsc ? 0 : 1);
 
   @override
   void initState() {
@@ -85,6 +84,7 @@ class _QuotationListPageState extends State<QuotationListPage> {
       SessionManager.getUserSessionID(),
       SessionManager.getUserAccessRight(),
       SessionManager.getItemsPerPage(),
+      SessionManager.getSalesDecimalPoint(),
     ]);
     _apiKey = results[0] as String;
     _companyGUID = results[1] as String;
@@ -92,6 +92,8 @@ class _QuotationListPageState extends State<QuotationListPage> {
     _userSessionID = results[3] as String;
     _accessRights = results[4] as List<String>;
     _itemsPerPage = results[5] as int;
+    final dp = results[6] as int;
+    _amtFmt = NumberFormat('#,##0.${'0' * dp}');
     await Future.wait([
       _fetchQuotations(page: 0),
       _refreshDraftFlag(),
@@ -104,143 +106,6 @@ class _QuotationListPageState extends State<QuotationListPage> {
   }
 
   bool _hasAccess(String right) => _accessRights.contains(right);
-
-  void _showNoAccessDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Access Denied'),
-        content: const Text('You do not have the access right to perform this action.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<bool?> _confirmDelete(String docNo) {
-    return showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        final cs = Theme.of(ctx).colorScheme;
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          contentPadding: EdgeInsets.zero,
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 20),
-              // Icon
-              Container(
-                width: 80,
-                height: 64,
-                decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha: 0.10),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.delete_outline_rounded,
-                    size: 32, color: Colors.red),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Delete Quotation',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Text(
-                  'Are you sure you want to delete\n$docNo?',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      fontSize: 13,
-                      color: cs.onSurface.withValues(alpha: 0.6),
-                      height: 1.5),
-                ),
-              ),
-              const SizedBox(height: 24),
-              Divider(height: 1, color: cs.outline.withValues(alpha: 0.15)),
-              IntrinsicHeight(
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextButton(
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.only(
-                                bottomLeft: Radius.circular(20)),
-                          ),
-                        ),
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: Text('Cancel',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: cs.onSurface.withValues(alpha: 0.6))),
-                      ),
-                    ),
-                    VerticalDivider(
-                        width: 1,
-                        color: cs.outline.withValues(alpha: 0.15)),
-                    Expanded(
-                      child: TextButton(
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.only(
-                                bottomRight: Radius.circular(20)),
-                          ),
-                        ),
-                        onPressed: () => Navigator.pop(ctx, true),
-                        child: const Text('Delete',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.red)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Future<bool> _deleteQuotation(int docID) async {
-    _apiKey = await SessionManager.getApiKey();
-    _companyGUID = await SessionManager.getCompanyGUID();
-    _userSessionID = await SessionManager.getUserSessionID();
-    try {
-      await BaseClient.post(
-        ApiEndpoints.removeQuotation,
-        body: {
-          'apiKey': _apiKey,
-          'companyGUID': _companyGUID,
-          'userID': _userID,
-          'userSessionID': _userSessionID,
-          'docID': docID,
-        },
-      );
-      return true;
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(
-            content: Text('Failed to delete: $e'),
-            behavior: SnackBarBehavior.floating,
-          ));
-      }
-      return false;
-    }
-  }
 
   Future<void> _fetchQuotations({required int page}) async {
     _apiKey = await SessionManager.getApiKey();
@@ -292,13 +157,41 @@ class _QuotationListPageState extends State<QuotationListPage> {
     }
   }
 
-  Future<void> _onRefresh() => _fetchQuotations(page: 0);
-
   void _onSearchSubmit(String value) {
     setState(() => _searchQuery = value.trim());
     _fetchQuotations(page: 0);
   }
 
+  Future<bool> _deleteQuotation(int docID) async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
+    try {
+      await BaseClient.post(
+        ApiEndpoints.removeQuotation,
+        body: {
+          'apiKey': _apiKey,
+          'companyGUID': _companyGUID,
+          'userID': _userID,
+          'userSessionID': _userSessionID,
+          'docID': docID,
+        },
+      );
+      return true;
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text(e is BadRequestException ? e.message : 'Failed to delete: $e'),
+            behavior: SnackBarBehavior.floating,
+          ));
+      }
+      return false;
+    }
+  }
+
+  Future<void> _onRefresh() => _fetchQuotations(page: 0);
 
   Future<void> _pickFromDate() async {
     final picked = await showDatePicker(
@@ -366,7 +259,7 @@ class _QuotationListPageState extends State<QuotationListPage> {
             tooltip: 'New Quotation',
             onPressed: () async {
               if (!_hasAccess('QUOTATION_ADD')) {
-                _showNoAccessDialog();
+                CommonDialog.ShowNoAccessRightDialog(context);
                 return;
               }
               final created = await Navigator.push<bool>(
@@ -388,14 +281,14 @@ class _QuotationListPageState extends State<QuotationListPage> {
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
                 child: Row(
                   children: [
-                    Expanded(child: _DatePill(
+                    Expanded(child: DatePill(
                       label: 'From',
                       date: _dateFmt.format(_fromDate),
                       onTap: _pickFromDate,
                       primary: primary,
                     )),
                     const SizedBox(width: 8),
-                    Expanded(child: _DatePill(
+                    Expanded(child: DatePill(
                       label: 'To',
                       date: _dateFmt.format(_toDate),
                       onTap: _pickToDate,
@@ -532,7 +425,7 @@ class _QuotationListPageState extends State<QuotationListPage> {
           Expanded(child: _buildEmpty())
         else
           Expanded(child: _buildList(start: start, end: end)),
-        _PaginationBar(
+        PaginationBar(
           currentPage: _currentPage,
           totalPages: _totalPages,
           isLoading: _isLoading,
@@ -548,12 +441,13 @@ class _QuotationListPageState extends State<QuotationListPage> {
     );
   }
 
-  Future<void> _onEditTap(QuotationListItem q) async {
+  Future<void> _onEditTap(QuotationListItem item) async {
     _apiKey = await SessionManager.getApiKey();
     _companyGUID = await SessionManager.getCompanyGUID();
     _userSessionID = await SessionManager.getUserSessionID();
     if (!_hasAccess('QUOTATION_EDIT')) {
-      _showNoAccessDialog();
+      if (!mounted) return;
+      CommonDialog.ShowNoAccessRightDialog(context);
       return;
     }
     QuotationDoc? doc;
@@ -565,7 +459,7 @@ class _QuotationListPageState extends State<QuotationListPage> {
           'companyGUID': _companyGUID,
           'userID': _userID,
           'userSessionID': _userSessionID,
-          'docID': q.docID,
+          'docID': item.docID,
         },
       );
       doc = QuotationDoc.fromJson(json as Map<String, dynamic>);
@@ -587,19 +481,19 @@ class _QuotationListPageState extends State<QuotationListPage> {
         builder: (_) => QuotationFormPage(initialDoc: doc),
       ),
     );
-    if (updated == true && mounted) _fetchQuotations(page: 0);
+    if (updated == true && mounted) _fetchQuotations(page: _currentPage);
   }
 
-  Future<void> _onDeleteTap(QuotationListItem q) async {
+  Future<void> _onDeleteTap(QuotationListItem item) async {
     if (!_hasAccess('QUOTATION_DELETE')) {
-      _showNoAccessDialog();
+      CommonDialog.ShowNoAccessRightDialog(context);
       return;
     }
-    final confirmed = await _confirmDelete(q.docNo);
+    final confirmed = await CommonDialog.ConfirmDeleteDialog(context, item.docNo, 'Quotation');
     if (confirmed != true) return;
-    final ok = await _deleteQuotation(q.docID);
+    final ok = await _deleteQuotation(item.docID);
     if (ok && mounted) {
-      setState(() => _quotations.removeWhere((e) => e.docID == q.docID));
+      setState(() => _quotations.removeWhere((e) => e.docID == item.docID));
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(const SnackBar(
@@ -631,15 +525,15 @@ class _QuotationListPageState extends State<QuotationListPage> {
               ),
             );
           }
-          final q = _quotations[i];
+          final item = _quotations[i];
           return Slidable(
-            key: ValueKey(q.docID),
+            key: ValueKey(item.docID),
             endActionPane: ActionPane(
               motion: const DrawerMotion(),
               extentRatio: 0.48,
               children: [
                 CustomSlidableAction(
-                  onPressed: (_) => _onEditTap(q),
+                  onPressed: (_) => _onEditTap(item),
                   backgroundColor: const Color(0xFF1565C0).withValues(alpha: 0.12),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -651,7 +545,7 @@ class _QuotationListPageState extends State<QuotationListPage> {
                   ),
                 ),
                 CustomSlidableAction(
-                  onPressed: (_) => _onDeleteTap(q),
+                  onPressed: (_) => _onDeleteTap(item),
                   backgroundColor: Colors.red.withValues(alpha: 0.12),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -665,15 +559,18 @@ class _QuotationListPageState extends State<QuotationListPage> {
               ],
             ),
             child: _QuotationTile(
-              quotation: q,
+              quotation: item,
               amtFmt: _amtFmt,
               dateFmt: _dateFmt,
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => QuotationDetailPage(docID: q.docID),
-                ),
-              ),
+              onTap: () async {
+                final result = await Navigator.push<bool>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => QuotationDetailPage(docID: item.docID),
+                  ),
+                );
+                if (result == true && mounted) _fetchQuotations(page: _currentPage);
+              },
             ),
           );
         },
@@ -754,63 +651,6 @@ class _QuotationListPageState extends State<QuotationListPage> {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Date pill
-// ─────────────────────────────────────────────────────────────────────
-
-class _DatePill extends StatelessWidget {
-  final String label;
-  final String date;
-  final VoidCallback onTap;
-  final Color primary;
-
-  const _DatePill({
-    required this.label,
-    required this.date,
-    required this.onTap,
-    required this.primary,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: primary.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: primary.withValues(alpha: 0.6),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                date,
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: primary,
-                ),
-              ),
-            ),
-            Icon(Icons.expand_more_rounded, size: 16, color: primary.withValues(alpha: 0.6)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────
 // Quotation tile
 // ─────────────────────────────────────────────────────────────────────
 
@@ -841,8 +681,7 @@ class _QuotationTile extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
           border: Border(
             bottom: BorderSide(
@@ -939,9 +778,6 @@ class _QuotationTile extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// Pagination bar
-// ─────────────────────────────────────────────────────────────────────
 
 class _DraftBanner extends StatelessWidget {
   final VoidCallback onContinue;
@@ -1000,70 +836,6 @@ class _DraftBanner extends StatelessWidget {
             ),
             onPressed: onContinue,
             child: const Text('Continue'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PaginationBar extends StatelessWidget {
-  final int currentPage;
-  final int totalPages;
-  final bool isLoading;
-  final Color primary;
-  final VoidCallback? onPrev;
-  final VoidCallback? onNext;
-
-  const _PaginationBar({
-    required this.currentPage,
-    required this.totalPages,
-    required this.isLoading,
-    required this.primary,
-    required this.onPrev,
-    required this.onNext,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(
-            color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.15),
-          ),
-        ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.chevron_left),
-            onPressed: isLoading ? null : onPrev,
-            style: IconButton.styleFrom(
-              foregroundColor: onPrev != null ? primary : null,
-            ),
-          ),
-          const SizedBox(width: 8),
-          if (isLoading)
-            const DotsLoading(dotSize: 6)
-          else
-            Text(
-              'Page ${currentPage + 1} of $totalPages',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: primary,
-              ),
-            ),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.chevron_right),
-            onPressed: isLoading ? null : onNext,
-            style: IconButton.styleFrom(
-              foregroundColor: onNext != null ? primary : null,
-            ),
           ),
         ],
       ),
@@ -1209,7 +981,7 @@ class _SortSheetState extends State<_SortSheet> {
                   Row(
                     children: [
                       Expanded(
-                        child: _DirectionChip(
+                        child: DirectionChip(
                           label: 'Ascending',
                           icon: Icons.arrow_upward_rounded,
                           selected: _sortAsc,
@@ -1218,7 +990,7 @@ class _SortSheetState extends State<_SortSheet> {
                       ),
                       const SizedBox(width: 10),
                       Expanded(
-                        child: _DirectionChip(
+                        child: DirectionChip(
                           label: 'Descending',
                           icon: Icons.arrow_downward_rounded,
                           selected: !_sortAsc,
@@ -1254,53 +1026,3 @@ class _SortSheetState extends State<_SortSheet> {
   }
 }
 
-class _DirectionChip extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _DirectionChip({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(
-          color:
-              selected ? primary.withValues(alpha: 0.1) : Colors.transparent,
-          border: Border.all(
-              color: selected
-                  ? primary
-                  : Theme.of(context)
-                      .colorScheme
-                      .outline
-                      .withValues(alpha: 0.4)),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 16, color: selected ? primary : null),
-            const SizedBox(width: 6),
-            Text(label,
-                style: TextStyle(
-                    fontSize: 13,
-                    fontWeight:
-                        selected ? FontWeight.w600 : FontWeight.normal,
-                    color: selected ? primary : null)),
-          ],
-        ),
-      ),
-    );
-  }
-}

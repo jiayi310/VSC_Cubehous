@@ -70,9 +70,9 @@ class QuotationDetailLine {
   final double taxAmt;
   final int? locationID;
   final String? location;
-  final String? image;
+  String? image;
 
-  const QuotationDetailLine({
+  QuotationDetailLine({
     required this.dtlID,
     required this.docID,
     required this.stockID,

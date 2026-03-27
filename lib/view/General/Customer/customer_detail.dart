@@ -25,10 +25,18 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
   bool _isLoading = true;
   String? _error;
 
+  final _scrollController = ScrollController();
+
   @override
   void initState() {
     super.initState();
     _init();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _init() async {
@@ -88,9 +96,18 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          "Customer",
-          style: const TextStyle(fontWeight: FontWeight.w600),
+        title: GestureDetector(
+          onDoubleTap: () {
+            if (_scrollController.hasClients) {
+              _scrollController.animateTo(
+                0,
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOut,
+              );
+            }
+          },
+          child: const Text('Customer',
+              style: TextStyle(fontWeight: FontWeight.w600)),
         ),
         centerTitle: true,
         actions: [
@@ -155,6 +172,7 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
 
   Widget _buildDetail(Customer c) {
     return SingleChildScrollView(
+      controller: _scrollController,
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -281,10 +299,10 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
         Text(
           title,
           style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: Theme.of(context).colorScheme.primary,
-            letterSpacing: 0.5,
+            fontSize: 13,
+          fontWeight: FontWeight.bold,
+          color: Theme.of(context).colorScheme.primary,
+          letterSpacing: 0.8,
           ),
         ),
         const SizedBox(height: 8),
@@ -303,7 +321,7 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -312,11 +330,11 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
                 child: Text(
                   label,
                   style: TextStyle(
-                    fontSize: 13,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: 0.55),
+                fontSize: 12,
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.5),
                   ),
                 ),
               ),

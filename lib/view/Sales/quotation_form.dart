@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:cubehous/common/my_color.dart';
+import 'package:cubehous/common/stock_common.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
@@ -17,8 +18,9 @@ import '../../models/stock.dart';
 import '../../models/stock_detail.dart';
 import '../../models/quotation.dart';
 import '../Common/customer_picker_page.dart';
+import '../Common/decoration.dart';
 import '../Common/sales_agent_picker_page.dart';
-import '../Common/item_picker_page.dart';
+import '../Common/Stock/item_picker_page.dart';
 
 class QuotationFormPage extends StatefulWidget {
   final QuotationDoc? initialDoc;
@@ -50,10 +52,10 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
   // Quotation-specific customer info (editable per quotation, does not affect original customer)
   String _addr1 = '', _addr2 = '', _addr3 = '', _addr4 = '';
   String _deliverAddr1 = '', _deliverAddr2 = '', _deliverAddr3 = '', _deliverAddr4 = '';
-  String _attention = '', _phone = '', _fax = '', _email = '';
+  String _attention = '', _phone = '', _fax = '', _email = '', _name = '';
 
   // Line items
-  final List<_LineItem> _lines = [];
+  final List<_LineItemQuotation> _lines = [];
 
   // Dropdown data
   List<TaxType> _taxTypes = [];
@@ -74,7 +76,9 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
   bool _notesExpanded = true;
   bool _itemsExpanded = true;
   final _dateFmt = DateFormat('dd MMM yyyy');
-  final _amtFmt = NumberFormat('#,##0.00');
+  late NumberFormat _amtFmt;
+  late NumberFormat _qtyFmt;
+  late String _currency = '';
 
   @override
   void initState() {
@@ -102,21 +106,23 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
       SessionManager.getImageMode(),
       SessionManager.getIsEnableTax(),
       SessionManager.getDefaultLocationID(),
+      SessionManager.getSalesDecimalPoint(),
+      SessionManager.getQuantityDecimalPoint(),
+      SessionManager.getCurrencySymbol(),
     ]);
     if (mounted) {
       setState(() {
         _showImage = (results[0] as String) == 'show';
         _isEnableTax = results[1] as bool;
         _defaultLocationID = results[2] as int;
+        final dp = results[3] as int;
+        _amtFmt = NumberFormat('#,##0.${'0' * dp}');
+        final dp2 = results[4] as int;
+        _qtyFmt = NumberFormat('#,##0.${'0' * dp2}');
+        _currency = results[5] as String;
       });
     }
-    await _loadDropdowns();
-  }
-
-  Future<void> _loadDropdowns() async {
-    _apiKey = await SessionManager.getApiKey();
-    _companyGUID = await SessionManager.getCompanyGUID();
-    _userSessionID = await SessionManager.getUserSessionID();
+    
     try {
       final body = {
         'apiKey': _apiKey,
@@ -154,7 +160,6 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
   }
 
   // ── Draft helpers ─────────────────────────────────────────────────────
-
   bool get _hasChanges =>
       _selectedCustomer != null ||
       _lines.isNotEmpty ||
@@ -171,7 +176,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
       'addr1': _addr1, 'addr2': _addr2, 'addr3': _addr3, 'addr4': _addr4,
       'deliverAddr1': _deliverAddr1, 'deliverAddr2': _deliverAddr2,
       'deliverAddr3': _deliverAddr3, 'deliverAddr4': _deliverAddr4,
-      'attention': _attention, 'phone': _phone, 'fax': _fax, 'email': _email,
+      'name': _name, 'attention': _attention, 'phone': _phone, 'fax': _fax, 'email': _email,
       'customer': _selectedCustomer == null ? null : {
         'customerID': _selectedCustomer!.customerID,
         'customerCode': _selectedCustomer!.customerCode,
@@ -239,6 +244,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
     _deliverAddr2 = j['deliverAddr2'] as String? ?? '';
     _deliverAddr3 = j['deliverAddr3'] as String? ?? '';
     _deliverAddr4 = j['deliverAddr4'] as String? ?? '';
+    _name = j['name'] as String? ?? '';
     _attention = j['attention'] as String? ?? '';
     _phone = j['phone'] as String? ?? '';
     _fax = j['fax'] as String? ?? '';
@@ -255,7 +261,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
 
     for (final lj in (j['lines'] as List<dynamic>? ?? [])) {
       final m = lj as Map<String, dynamic>;
-      final line = _LineItem()
+      final line = _LineItemQuotation()
         ..stockID = (m['stockID'] as int?) ?? 0
         ..stockCode = (m['stockCode'] as String?) ?? ''
         ..uom = (m['uom'] as String?) ?? ''
@@ -287,6 +293,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
     _deliverAddr2 = doc.deliverAddr2 ?? '';
     _deliverAddr3 = doc.deliverAddr3 ?? '';
     _deliverAddr4 = doc.deliverAddr4 ?? '';
+    _name = doc.customerName;
     _attention = doc.attention ?? '';
     _phone = doc.phone ?? '';
     _fax = doc.fax ?? '';
@@ -329,7 +336,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
     }
 
     for (final detail in doc.quotationDetails) {
-      final line = _LineItem()
+      final line = _LineItemQuotation()
         ..dtlID = detail.dtlID
         ..stockID = detail.stockID
         ..stockCode = detail.stockCode
@@ -451,44 +458,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
   // ── Price category helpers ────────────────────────────────────────────
   int get _priceCategory => _selectedCustomer?.priceCategory ?? 1;
 
-  double _priceForCategory(StockUOMDto uom, int cat) {
-    switch (cat) {
-      case 2: return uom.price2;
-      case 3: return uom.price3;
-      case 4: return uom.price4;
-      case 5: return uom.price5;
-      case 6: return uom.price6;
-      default: return uom.price1;
-    }
-  }
-
-  /// Fetches StockDetail and returns the price for [uomName] and current
-  /// customer price category. Returns null if the call fails.
-  Future<double?> _fetchUOMPrice(int stockID, String uomName) async {
-    _apiKey = await SessionManager.getApiKey();
-    _companyGUID = await SessionManager.getCompanyGUID();
-    _userSessionID = await SessionManager.getUserSessionID();
-    try {
-      final json = await BaseClient.post(
-        ApiEndpoints.getStock,
-        body: {
-          'apiKey': _apiKey,
-          'companyGUID': _companyGUID,
-          'userID': _userID,
-          'userSessionID': _userSessionID,
-          'stockID': stockID,
-        },
-      );
-      final detail = StockDetail.fromJson(json as Map<String, dynamic>);
-      final uomDto =
-          detail.stockUOMDtoList.where((u) => u.uom == uomName).firstOrNull;
-      if (uomDto != null) return _priceForCategory(uomDto, _priceCategory);
-    } catch (_) {}
-    return null;
-  }
-
   // ── Calculated totals ────────────────────────────────────────────────
-
   // Gross before discount (display only)
   double get _grossSubtotal =>
       _lines.fold(0, (s, l) => s + l.qty * l.unitPrice);
@@ -499,8 +469,8 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
   double get _taxAmt => _lines.fold(0, (s, l) => s + l.lineTaxAmt);
   double get _finalTotal => _subtotal + (_isEnableTax ? _taxAmt : 0);
 
-  // ── Save ─────────────────────────────────────────────────────────────
 
+  // ── Save ─────────────────────────────────────────────────────────────
   Future<void> _save() async {
     _apiKey = await SessionManager.getApiKey();
     _companyGUID = await SessionManager.getCompanyGUID();
@@ -543,7 +513,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
           'discount': l.discount,
           'total': l.lineTotal,
           'taxTypeID': l.selectedTaxType?.taxTypeID,
-          'taxCode': l.selectedTaxType?.taxCode,
+          'taxCode': l.selectedTaxType?.taxCode ?? '',
           'taxableAmt': l.lineTaxableAmt,
           'taxRate': l.selectedTaxType?.taxRate ?? 0,
           'taxAmt': l.lineTaxAmt,
@@ -566,7 +536,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
             'docDate': _docDate.toIso8601String(),
             'customerID': c.customerID,
             'customerCode': c.customerCode,
-            'customerName': c.name,
+            'customerName': _name,
             'address1': _addr1,
             'address2': _addr2,
             'address3': _addr3,
@@ -615,8 +585,6 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
     ));
   }
 
-  // ── Pickers ──────────────────────────────────────────────────────────
-
   Future<void> _pickCustomer() async {
     final picked = await Navigator.push<Customer>(
       context,
@@ -644,6 +612,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
       _deliverAddr2 = picked.deliverAddr2 ?? '';
       _deliverAddr3 = picked.deliverAddr3 ?? '';
       _deliverAddr4 = picked.deliverAddr4 ?? '';
+      _name = picked.name;
       _attention = picked.attention ?? '';
       _phone = picked.phone1 ?? '';
       _fax = picked.fax1 ?? '';
@@ -683,7 +652,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
     try {
       await Future.wait(_lines.map((line) async {
         if (line.stockID == 0) return;
-        final price = await _fetchUOMPrice(line.stockID, line.uom);
+        final price = await StockCommon.fetchUOMPrice(line.stockID, line.uom, _priceCategory);
         if (price != null && mounted) line.unitPriceCtrl.text = price.toString();
       }));
     } finally {
@@ -701,11 +670,12 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
     final d2 = TextEditingController(text: _deliverAddr2);
     final d3 = TextEditingController(text: _deliverAddr3);
     final d4 = TextEditingController(text: _deliverAddr4);
+    final na = TextEditingController(text: _name);
     final att = TextEditingController(text: _attention);
     final ph = TextEditingController(text: _phone);
     final fx = TextEditingController(text: _fax);
     final em = TextEditingController(text: _email);
-
+    
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -743,6 +713,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
                           _deliverAddr3 = d3.text.trim();
                           _deliverAddr4 = d4.text.trim();
                           _attention = att.text.trim();
+                          _name = na.text.trim();
                           _phone = ph.text.trim();
                           _fax = fx.text.trim();
                           _email = em.text.trim();
@@ -759,23 +730,24 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
                   controller: sc,
                   padding: const EdgeInsets.all(16),
                   children: [
-                    _SheetSection(label: 'Billing Address'),
-                    _SheetField(ctrl: a1, hint: 'Address line 1'),
-                    _SheetField(ctrl: a2, hint: 'Address line 2'),
-                    _SheetField(ctrl: a3, hint: 'Address line 3'),
-                    _SheetField(ctrl: a4, hint: 'Address line 4'),
+                    SheetSection(label: 'Billing Address'),
+                    SheetField(ctrl: a1, hint: 'Address line 1'),
+                    SheetField(ctrl: a2, hint: 'Address line 2'),
+                    SheetField(ctrl: a3, hint: 'Address line 3'),
+                    SheetField(ctrl: a4, hint: 'Address line 4'),
                     const SizedBox(height: 16),
-                    _SheetSection(label: 'Delivery Address'),
-                    _SheetField(ctrl: d1, hint: 'Address line 1'),
-                    _SheetField(ctrl: d2, hint: 'Address line 2'),
-                    _SheetField(ctrl: d3, hint: 'Address line 3'),
-                    _SheetField(ctrl: d4, hint: 'Address line 4'),
+                    SheetSection(label: 'Delivery Address'),
+                    SheetField(ctrl: d1, hint: 'Address line 1'),
+                    SheetField(ctrl: d2, hint: 'Address line 2'),
+                    SheetField(ctrl: d3, hint: 'Address line 3'),
+                    SheetField(ctrl: d4, hint: 'Address line 4'),
                     const SizedBox(height: 16),
-                    _SheetSection(label: 'Contact'),
-                    _SheetField(ctrl: att, hint: 'Attention'),
-                    _SheetField(ctrl: ph, hint: 'Phone', inputType: TextInputType.phone),
-                    _SheetField(ctrl: fx, hint: 'Fax', inputType: TextInputType.phone),
-                    _SheetField(ctrl: em, hint: 'Email', inputType: TextInputType.emailAddress),
+                    SheetSection(label: 'Contact'),
+                    SheetField(ctrl: na, hint: 'Name'),
+                    SheetField(ctrl: att, hint: 'Attention'),
+                    SheetField(ctrl: em, hint: 'Email', inputType: TextInputType.emailAddress),
+                    SheetField(ctrl: ph, hint: 'Phone', inputType: TextInputType.phone),
+                    SheetField(ctrl: fx, hint: 'Fax', inputType: TextInputType.phone),
                   ],
                 ),
               ),
@@ -786,7 +758,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
       ),
     );
 
-    for (final c in [a1, a2, a3, a4, d1, d2, d3, d4, att, ph, fx, em]) {
+    for (final c in [a1, a2, a3, a4, d1, d2, d3, d4, att, ph, fx, em, na]) {
       c.dispose();
     }
   }
@@ -870,6 +842,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
       context,
       MaterialPageRoute(
         builder: (_) => ItemPickerPage(
+          module: "QUOTATION",
           apiKey: _apiKey,
           companyGUID: _companyGUID,
           userID: _userID,
@@ -879,7 +852,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
     );
     if (picked != null && mounted) {
       final price =
-          await _fetchUOMPrice(picked.stockID, picked.baseUOM) ??
+          await StockCommon.fetchUOMPrice(picked.stockID, picked.baseUOM, _priceCategory) ??
           picked.baseUOMPrice1;
       if (!mounted) return;
       setState(() {
@@ -904,6 +877,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
       context,
       MaterialPageRoute(
         builder: (_) => ItemPickerPage(
+          module: "QUOTATION",
           apiKey: _apiKey,
           companyGUID: _companyGUID,
           userID: _userID,
@@ -913,10 +887,10 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
     );
     if (picked != null && mounted) {
       final price =
-          await _fetchUOMPrice(picked.stockID, picked.baseUOM) ??
+          await StockCommon.fetchUOMPrice(picked.stockID, picked.baseUOM, _priceCategory) ??
           picked.baseUOMPrice1;
       if (!mounted) return;
-      final line = _LineItem();
+      final line = _LineItemQuotation();
       line.stockID = picked.stockID;
       line.stockCode = picked.stockCode;
       line.uom = picked.baseUOM;
@@ -975,17 +949,17 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
       }
       if (found != null && mounted) {
         final price =
-            await _fetchUOMPrice(found.stockID, found.baseUOM) ??
+            await StockCommon.fetchUOMPrice(found.stockID, found.baseUOM, _priceCategory) ??
             found.baseUOMPrice1;
         if (!mounted) return;
         setState(() {
           // Fill the first empty line, or add a new one
           final emptyIndex = _lines.indexWhere((l) => l.stockID == 0);
-          final _LineItem line;
+          final _LineItemQuotation line;
           if (emptyIndex >= 0) {
             line = _lines[emptyIndex];
           } else {
-            line = _LineItem();
+            line = _LineItemQuotation();
             _lines.add(line);
           }
           line.stockID = found!.stockID;
@@ -997,6 +971,15 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
           if (found.taxTypeID != 0) {
             line.selectedTaxType =
                 _taxTypes.where((t) => t.taxTypeID == found!.taxTypeID).firstOrNull;
+          }
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_formScrollCtrl.hasClients) {
+            _formScrollCtrl.animateTo(
+              _formScrollCtrl.position.maxScrollExtent,
+              duration: const Duration(milliseconds: 350),
+              curve: Curves.easeOutCubic,
+            );
           }
         });
       } else if (mounted) {
@@ -1015,8 +998,9 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
+        final nav = Navigator.of(context);
         final canPop = await _onWillPop();
-        if (canPop && mounted) Navigator.of(context).pop();
+        if (canPop && mounted) nav.pop();
       },
       child: Scaffold(
       appBar: AppBar(
@@ -1054,7 +1038,9 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         // ── Document ──────────────────────────────────
-                        _sectionHeader(Icons.receipt_long_outlined, 'Document',
+                        FormSectionHeader(
+                            icon: Icons.receipt_long_outlined,
+                            title: 'Document',
                             expanded: _docExpanded,
                             onToggle: () => setState(() => _docExpanded = !_docExpanded)),
                         AnimatedSize(
@@ -1064,11 +1050,11 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
                               ? Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    _FieldLabel(label: 'Date'),
+                                    FieldLabel(label: 'Date'),
                                     InkWell(
                                       onTap: _pickDate,
                                       borderRadius: BorderRadius.circular(12),
-                                      child: _FieldBox(
+                                      child: FieldBox(
                                         child: Row(
                                           children: [
                                             const Icon(Icons.calendar_today_outlined, size: 18),
@@ -1081,8 +1067,8 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
                                     ),
                                     const SizedBox(height: 12),
                                     // ── Customer ────────────────────────
-                                    _FieldLabel(label: 'Customer *'),
-                                    _FieldBox(
+                                    FieldLabel(label: 'Customer *'),
+                                    FieldBox(
                                       child: Row(
                                         children: [
                                           const Icon(Icons.person_outline, size: 18),
@@ -1106,14 +1092,11 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
                                                         Text(_selectedCustomer!.customerCode,
                                                             style: TextStyle(
                                                                 fontSize: 12,
-                                                                color: Theme.of(context)
-                                                                    .colorScheme
-                                                                    .primary)),
+                                                                fontWeight: FontWeight.w800)),
                                                         Text(_selectedCustomer!.name,
                                                             style: const TextStyle(
                                                                 fontSize: 14,
                                                                 fontWeight: FontWeight.w600)),
-                                                        
                                                       ],
                                                     ),
                                             ),
@@ -1140,11 +1123,11 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
                                     ),
                                     const SizedBox(height: 12),
                                     // ── Sales Agent ──────────────────────
-                                    _FieldLabel(label: 'Sales Agent'),
+                                    FieldLabel(label: 'Sales Agent'),
                                     InkWell(
                                       onTap: _pickSalesAgent,
                                       borderRadius: BorderRadius.circular(12),
-                                      child: _FieldBox(
+                                      child: FieldBox(
                                         child: Row(
                                           children: [
                                             const Icon(Icons.badge_outlined, size: 18),
@@ -1164,7 +1147,8 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
                                                       _selectedSalesAgent!.name ?? '',
                                                       style: const TextStyle(
                                                           fontSize: 14,
-                                                          fontWeight: FontWeight.w600),
+                                                          fontWeight: FontWeight.w600,
+                                                          ),
                                                     ),
                                             ),
                                             if (_selectedSalesAgent != null)
@@ -1195,7 +1179,9 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
                         ),
 
                         // ── Notes ─────────────────────────────────────
-                        _sectionHeader(Icons.notes_outlined, 'Notes',
+                        FormSectionHeader(
+                            icon: Icons.notes_outlined,
+                            title: 'Notes',
                             expanded: _notesExpanded,
                             onToggle: () => setState(() => _notesExpanded = !_notesExpanded)),
                         AnimatedSize(
@@ -1205,28 +1191,28 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
                               ? Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    _FieldLabel(label: 'Description'),
+                                    FieldLabel(label: 'Description'),
                                     TextFormField(
                                       controller: _descriptionCtrl,
                                       maxLines: 1,
                                       style: const TextStyle(fontSize: 14),
-                                      decoration: _inputDeco(''),
+                                      decoration: formInputDeco(context),
                                     ),
                                     const SizedBox(height: 12),
-                                    _FieldLabel(label: 'Remark'),
+                                    FieldLabel(label: 'Remark'),
                                     TextFormField(
                                       controller: _remarkCtrl,
                                       maxLines: 1,
                                       style: const TextStyle(fontSize: 14),
-                                      decoration: _inputDeco(''),
+                                      decoration: formInputDeco(context),
                                     ),
                                     const SizedBox(height: 12),
                                     // ── Shipping Method ─────────────────
-                                    _FieldLabel(label: 'Shipping Method'),
+                                    FieldLabel(label: 'Shipping Method'),
                                     InkWell(
                                       onTap: _pickShippingMethod,
                                       borderRadius: BorderRadius.circular(12),
-                                      child: _FieldBox(
+                                      child: FieldBox(
                                         child: Row(
                                           children: [
                                             const Icon(Icons.local_shipping_outlined, size: 18),
@@ -1277,7 +1263,9 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
                         ),
 
                         // ── Items ─────────────────────────────────────
-                        _sectionHeader(Icons.list_alt_outlined, 'Items',
+                        FormSectionHeader(
+                            icon: Icons.list_alt_outlined,
+                            title: 'Items',
                             expanded: _itemsExpanded,
                             onToggle: () => setState(() => _itemsExpanded = !_itemsExpanded),
                             badge: '${_lines.length}'),
@@ -1290,13 +1278,14 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
                                   children: [
                                     SlidableAutoCloseBehavior(
                                       child: Column(
-                                        children: _lines.asMap().entries.map((e) => _LineItemCard(
+                                        children: _lines.asMap().entries.map((e) => _LineItemCardQuotation(
                                               key: ValueKey(e.key),
                                               index: e.key,
                                               item: e.value,
                                               taxTypes: _taxTypes,
                                               locations: _locations,
                                               amtFmt: _amtFmt,
+                                              qtyFmt: _qtyFmt,
                                               showImage: _showImage,
                                               onRemove: () => _removeLine(e.key),
                                               onChanged: () => setState(() {}),
@@ -1330,7 +1319,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
                     ),
                   ),
                 ),
-                if (_lines.isNotEmpty) _buildTotalsFooter(),
+                _buildTotalsFooter(),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
                   child: SizedBox(
@@ -1339,7 +1328,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
                     child: FilledButton(
                       onPressed: _isSaving ? null : _save,
                       child: Text(
-                          _isEditMode ? 'Update Quotation' : 'Create Quotation',
+                          _isEditMode ? 'Update' : 'Save',
                           style: const TextStyle(
                               fontSize: 15, fontWeight: FontWeight.w700)),
                     ),
@@ -1380,32 +1369,13 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
   Widget _buildTotalsFooter() {
     final primary = Theme.of(context).colorScheme.primary;
     final cs = Theme.of(context).colorScheme;
-
-    Widget row(String label, String value, {Color? labelColor, Color? valueColor, bool bold = false}) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 3),
-        child: Row(
-          children: [
-            Text(label,
-                style: TextStyle(
-                    fontSize: 12,
-                    color: labelColor ?? cs.onSurface.withValues(alpha: 0.55))),
-            const Spacer(),
-            Text(value,
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
-                    color: valueColor ?? cs.onSurface)),
-          ],
-        ),
-      );
-    }
+    final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5);
 
     return GestureDetector(
       onTap: () => setState(() => _footerExpanded = !_footerExpanded),
       child: Container(
         color: cs.surfaceContainerLow,
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1430,19 +1400,24 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
                         ),
                           ],
                         ),
-                        const SizedBox(height: 8),
-                        row('Subtotal',
-                            _amtFmt.format(_grossSubtotal),
-                            valueColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55)),
-                        row('Discount',
-                              '- ${_amtFmt.format(_discountAmt)}',
-                              labelColor: _discountAmt == 0 ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55) : Mycolor.discountTextColor,
-                              valueColor: _discountAmt == 0 ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55) : Mycolor.discountTextColor),
-                        if (_isEnableTax) row(
-                          'Tax', 
-                          '+ ${_amtFmt.format(_taxAmt)}', 
-                          labelColor: _taxAmt == 0 ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55) : Mycolor.taxTextColor,
-                          valueColor: _taxAmt == 0 ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55) : Mycolor.taxTextColor),
+                        const SizedBox(height: 10),
+                        FormTotalPriceSummaryRow(
+                          label: 'Subtotal', 
+                          value: _amtFmt.format(_grossSubtotal),
+                          muted: muted),
+                        FormTotalPriceSummaryRow(
+                            label: 'Discount', 
+                            value: '- ${_amtFmt.format(_discountAmt)}',
+                            muted: muted,
+                            valueColor: _discountAmt == 0 ? muted : Mycolor.discountTextColor),
+                        
+                        if (_isEnableTax) 
+                          FormTotalPriceSummaryRow(
+                            label: 'Tax', 
+                            value: '+ ${_amtFmt.format(_taxAmt)}',
+                            muted: muted,
+                            valueColor: _discountAmt == 0 ? muted : Mycolor.taxTextColor),
+                        
                         Divider(
                             height: 12,
                             color: cs.outline.withValues(alpha: 0.2)),
@@ -1461,7 +1436,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
                 ),
                 const Spacer(),
                 Text(
-                  _amtFmt.format(_finalTotal),
+                  '$_currency ${_amtFmt.format(_finalTotal)}',
                   style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
@@ -1482,85 +1457,13 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
       ),
     );
   }
-
-  Widget _sectionHeader(IconData icon, String title,
-      {required bool expanded, required VoidCallback onToggle, String? badge}) {
-    final primary = Theme.of(context).colorScheme.primary;
-    return GestureDetector(
-      onTap: onToggle,
-      behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: const EdgeInsets.only(top: 20, bottom: 12),
-        child: Row(
-          children: [
-            Icon(icon, size: 16, color: primary),
-            const SizedBox(width: 6),
-            Text(title,
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    color: primary,
-                    letterSpacing: 0.6)),
-            if (badge != null) ...[
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                decoration: BoxDecoration(
-                  color: primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(badge,
-                    style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: primary)),
-              ),
-            ],
-            const SizedBox(width: 8),
-            Expanded(
-                child:
-                    Divider(color: primary.withValues(alpha: 0.2), thickness: 1)),
-            const SizedBox(width: 8),
-            AnimatedRotation(
-              turns: expanded ? 0 : -0.25,
-              duration: const Duration(milliseconds: 200),
-              child: Icon(Icons.keyboard_arrow_down_rounded,
-                  size: 18, color: primary.withValues(alpha: 0.6)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  InputDecoration _inputDeco(String label) {
-    return InputDecoration(
-      labelText: label,
-      labelStyle: TextStyle(
-        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4)
-      ),
-      filled: true,
-      isDense: true,
-      border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none),
-      enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(
-            color: Theme.of(context).colorScheme.primary, width: 1.5),
-      ),
-    );
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────
 // Line item model
 // ─────────────────────────────────────────────────────────────────────
 
-class _LineItem {
+class _LineItemQuotation {
   int dtlID = 0;
   int stockID = 0;
   String stockCode = '';
@@ -1580,13 +1483,14 @@ class _LineItem {
   // Rules:
   //   - Parts separated by "+"
   //   - Part ending with "%" → percentage of remaining amount
-  //   - Part without "%" → fixed RM amount
-  //   - Plain number with no "+" or "%" → percentage (backward compat)
+  //   - Number without "%" → fixed amount (e.g. "0.5" = 0.50 off)
+  //   - Number with "%" → percentage of remaining subtotal (e.g. "10%" = 10% off)
+  //   - Combined with "+" → applied sequentially on remaining amount
   static double _parseDiscountAmt(String text, double subtotal) {
     final t = text.trim();
     if (t.isEmpty || t == '0') return 0;
     if (!t.contains('+') && !t.contains('%')) {
-      return subtotal * (double.tryParse(t) ?? 0) / 100;
+      return double.tryParse(t) ?? 0;
     }
     final parts = t.split('+');
     double remaining = subtotal;
@@ -1632,12 +1536,13 @@ class _LineItem {
 // Line item card
 // ─────────────────────────────────────────────────────────────────────
 
-class _LineItemCard extends StatefulWidget {
+class _LineItemCardQuotation extends StatefulWidget {
   final int index;
-  final _LineItem item;
+  final _LineItemQuotation item;
   final List<TaxType> taxTypes;
   final List<Location> locations;
   final NumberFormat amtFmt;
+  final NumberFormat qtyFmt;
   final VoidCallback onRemove;
   final VoidCallback onChanged;
   final VoidCallback onPickItem;
@@ -1649,13 +1554,14 @@ class _LineItemCard extends StatefulWidget {
   final int userID;
   final String userSessionID;
 
-  const _LineItemCard({
+  const _LineItemCardQuotation({
     super.key,
     required this.index,
     required this.item,
     required this.taxTypes,
     required this.locations,
     required this.amtFmt,
+    required this.qtyFmt,
     required this.showImage,
     required this.enableTax,
     required this.priceCategory,
@@ -1669,25 +1575,40 @@ class _LineItemCard extends StatefulWidget {
   });
 
   @override
-  State<_LineItemCard> createState() => _LineItemCardState();
+  State<_LineItemCardQuotation> createState() => _LineItemCardQuotationState();
 }
 
-class _LineItemCardState extends State<_LineItemCard> {
+class _LineItemCardQuotationState extends State<_LineItemCardQuotation> {
   bool _expanded = false;
   double? _pointerDownX;
   double? _pointerDownY;
+  late final VoidCallback _rebuildListener;
 
   @override
   void initState() {
     super.initState();
+    _rebuildListener = () { if (mounted) setState(() {}); };
     for (final ctrl in [
       widget.item.qtyCtrl,
       widget.item.unitPriceCtrl,
       widget.item.discountCtrl,
+      widget.item.descriptionCtrl,
     ]) {
-      ctrl.addListener(() => setState(() {}));
+      ctrl.addListener(_rebuildListener);
     }
-    widget.item.descriptionCtrl.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    for (final ctrl in [
+      widget.item.qtyCtrl,
+      widget.item.unitPriceCtrl,
+      widget.item.discountCtrl,
+      widget.item.descriptionCtrl,
+    ]) {
+      ctrl.removeListener(_rebuildListener);
+    }
+    super.dispose();
   }
 
   void _openEditSheet() {
@@ -1708,6 +1629,8 @@ class _LineItemCardState extends State<_LineItemCard> {
           widget.onChanged();
           if (mounted) setState(() {});
         },
+        amtFmt: widget.amtFmt,
+        qtyFmt: widget.qtyFmt,
       ),
     );
   }
@@ -1728,15 +1651,13 @@ class _LineItemCardState extends State<_LineItemCard> {
         ),
       );
 
-  String _fmtNum(double v) =>
-      v == v.truncateToDouble() ? v.toInt().toString() : v.toString();
-
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final primary = cs.primary;
     final item = widget.item;
-    final fmt = widget.amtFmt;
+    final salesFmt = widget.amtFmt;
+    final qtyFmt = widget.qtyFmt;
 
     // ── Build image or badge ──────────────────────────────────────────────
     Widget leading;
@@ -1767,6 +1688,7 @@ class _LineItemCardState extends State<_LineItemCard> {
 
     // ── Breakdown amounts (shown when expanded) ───────────────────────────
     final discAmt = item.discountAmt;
+    final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -1811,7 +1733,7 @@ class _LineItemCardState extends State<_LineItemCard> {
                     SizedBox(height: 4),
                     Text('Edit',
                         style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 10,
                             fontWeight: FontWeight.w600,
                             color: Color(0xFF1565C0))),
                   ],
@@ -1827,7 +1749,7 @@ class _LineItemCardState extends State<_LineItemCard> {
                     SizedBox(height: 4),
                     Text('Delete',
                         style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 10,
                             fontWeight: FontWeight.w600,
                             color: Colors.red)),
                   ],
@@ -1844,7 +1766,7 @@ class _LineItemCardState extends State<_LineItemCard> {
                 border: Border.all(color: cs.outline.withValues(alpha: 0.18)),
               ),
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Image / badge — vertically centered
                   leading,
@@ -1871,7 +1793,7 @@ class _LineItemCardState extends State<_LineItemCard> {
                             Container(
                               padding: const EdgeInsets.symmetric(vertical: 2),
                               child: Text(
-                                'x ${_fmtNum(item.qty)}',
+                                'x ${qtyFmt.format(item.qty)}',
                                 style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w700,
@@ -1900,7 +1822,7 @@ class _LineItemCardState extends State<_LineItemCard> {
                                   fontSize: 11,
                                   color: cs.onSurface.withValues(alpha: 0.5)),
                             ),
-                            if (item.discountCtrl.text.isNotEmpty) ...[
+                            if (item.discountAmt != 0) ...[
                               const SizedBox(width: 6),
                               Container(
                                 padding: const EdgeInsets.symmetric(
@@ -1938,7 +1860,7 @@ class _LineItemCardState extends State<_LineItemCard> {
                             ],
                             const Spacer(),
                             Text(
-                              fmt.format(item.lineTotal),
+                              salesFmt.format(item.lineTotal + item.lineTaxAmt),
                               style: TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w800,
@@ -1950,27 +1872,32 @@ class _LineItemCardState extends State<_LineItemCard> {
                         if (_expanded) ...[
                           const SizedBox(height: 8),
                           Divider(
-                              height: 1,
-                              color: cs.outline.withValues(alpha: 0.2)),
+                            height: 1,
+                            color: cs.outline.withValues(alpha: 0.2)),
                           const SizedBox(height: 8),
-                          _breakdownRow(
-                              'Subtotal',
-                              fmt.format(item.qty * item.unitPrice),
-                              cs),
-                            const SizedBox(height: 3),
-                            _breakdownRow(
-                                'Discount',
-                                '- ${fmt.format(discAmt)}',
-                                cs,
-                                valueColor: Mycolor.discountTextColor),
+                          ItemBreakdownRow(
+                            label: 'Unit Price',
+                            value: salesFmt.format(item.unitPrice),
+                            muted: muted),
+                          const SizedBox(height: 3),
+                          ItemBreakdownRow(
+                            label: 'Subtotal', 
+                            value: salesFmt.format(item.qty * item.unitPrice),
+                            muted: muted),
+                          const SizedBox(height: 3),
+                          ItemBreakdownRow(
+                            label: 'Discount', 
+                            value: '- ${salesFmt.format(discAmt)}', 
+                            muted: muted,
+                            valueColor: discAmt == 0 ? muted : Mycolor.discountTextColor),
                         
                           if (widget.enableTax) ...[
                             const SizedBox(height: 3),
-                            _breakdownRow(
-                                'Tax (${item.selectedTaxType?.taxRate ?? ''}%) ',
-                                '+ ${fmt.format(item.lineTaxAmt)}',
-                                cs,
-                                valueColor: Mycolor.taxTextColor),
+                            ItemBreakdownRow(
+                            label: 'Tax (${item.selectedTaxType?.taxRate ?? ''}%) ',
+                            value: '+ ${salesFmt.format(item.lineTaxAmt)}',
+                            muted: muted,
+                            valueColor: item.lineTaxAmt == 0 ? muted : Mycolor.taxTextColor),
                           ],
                         ],
                       ],
@@ -1986,22 +1913,7 @@ class _LineItemCardState extends State<_LineItemCard> {
     );
   }
 
-  Widget _breakdownRow(String label, String value, ColorScheme cs,
-      {Color? valueColor}) {
-    return Row(
-      children: [
-        Text(label,
-            style: TextStyle(
-                fontSize: 11, color: cs.onSurface.withValues(alpha: 0.5))),
-        const Spacer(),
-        Text(value,
-            style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: valueColor ?? cs.onSurface.withValues(alpha: 0.65))),
-      ],
-    );
-  }
+
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -2009,7 +1921,7 @@ class _LineItemCardState extends State<_LineItemCard> {
 // ─────────────────────────────────────────────────────────────────────
 
 class _LineItemEditSheet extends StatefulWidget {
-  final _LineItem item;
+  final _LineItemQuotation item;
   final List<TaxType> taxTypes;
   final bool enableTax;
   final int priceCategory;
@@ -2018,6 +1930,8 @@ class _LineItemEditSheet extends StatefulWidget {
   final int userID;
   final String userSessionID;
   final VoidCallback onChanged;
+  final NumberFormat amtFmt;
+  final NumberFormat qtyFmt;
 
   const _LineItemEditSheet({
     required this.item,
@@ -2029,6 +1943,8 @@ class _LineItemEditSheet extends StatefulWidget {
     required this.userID,
     required this.userSessionID,
     required this.onChanged,
+    required this.amtFmt,
+    required this.qtyFmt
   });
 
   @override
@@ -2045,9 +1961,7 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
   List<StockUOMDto> _uomList = [];
   bool _loadingUOM = true;
   int _qtyDp = 2;
-  int _priceDp = 2;
-
-  final _amtFmt = NumberFormat('#,##0.00');
+  int _salesDp = 2;
 
   @override
   void initState() {
@@ -2071,10 +1985,16 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
       _fetchUOMList(),
     ]);
     if (!mounted) return;
+    final qtyDp = results[0] as int;
+    final salesDp = results[1] as int;
+    final qty = double.tryParse(_qtyCtrl.text) ?? 1.0;
+    final price = double.tryParse(_priceCtrl.text) ?? 0.0;
     setState(() {
-      _qtyDp = results[0] as int;
-      _priceDp = results[1] as int;
+      _qtyDp = qtyDp;
+      _salesDp = salesDp;
       _loadingUOM = false;
+      _qtyCtrl.text = StockCommon.FormatDp(qty, qtyDp);
+      _priceCtrl.text = StockCommon.FormatDp(price, salesDp);
     });
   }
 
@@ -2094,11 +2014,6 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
       if (mounted) {
         setState(() {
           _uomList = detail.stockUOMDtoList;
-          // Apply the correct price for the current UOM based on price category
-          final current = _uomList.where((u) => u.uom == _uom).firstOrNull;
-          if (current != null) {
-            _priceCtrl.text = _formatDp(_priceForCategory(current), _priceDp);
-          }
         });
       }
     } catch (_) {}
@@ -2117,7 +2032,7 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
   double get _qty => double.tryParse(_qtyCtrl.text) ?? 0;
   double get _unitPrice => double.tryParse(_priceCtrl.text) ?? 0;
   double get _subtotal => _qty * _unitPrice;
-  double get _discAmt => _LineItem._parseDiscountAmt(_discCtrl.text, _subtotal);
+  double get _discAmt => _LineItemQuotation._parseDiscountAmt(_discCtrl.text, _subtotal);
   double get _lineTotal => _subtotal - _discAmt;
   double get _taxAmt {
     final rate = _taxType?.taxRate ?? 0;
@@ -2128,36 +2043,77 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
   // ── Qty helpers ──────────────────────────────────────────────────────
   void _clampQty() {
     final v = double.tryParse(_qtyCtrl.text) ?? 0;
-    if (v < 1) _qtyCtrl.text = _formatDp(1.0, _qtyDp);
+    if (v < 1) _qtyCtrl.text = StockCommon.FormatDp(1.0, _qtyDp);
   }
 
   void _stepQty(int delta) {
     final current = double.tryParse(_qtyCtrl.text) ?? 1;
     final next = (current + delta).clamp(1.0, double.infinity);
-    _qtyCtrl.text = _formatDp(next, _qtyDp);
-  }
-
-  String _formatDp(double v, int dp) {
-    if (dp == 0) return v.toInt().toString();
-    return v.toStringAsFixed(dp);
-  }
-
-  double _priceForCategory(StockUOMDto uom) {
-    switch (widget.priceCategory) {
-      case 2: return uom.price2;
-      case 3: return uom.price3;
-      case 4: return uom.price4;
-      case 5: return uom.price5;
-      case 6: return uom.price6;
-      default: return uom.price1;
-    }
+    _qtyCtrl.text = StockCommon.FormatDp(next, _qtyDp);
   }
 
   void _onUOMSelected(StockUOMDto uom) {
     setState(() {
       _uom = uom.uom;
-      _priceCtrl.text = _formatDp(_priceForCategory(uom), _priceDp);
+      _priceCtrl.text = StockCommon.FormatDp(StockCommon.PriceForCategory(uom, widget.priceCategory), _salesDp);
     });
+  }
+
+  void _pickTaxType(BuildContext context) {
+    final options = <TaxType?>[null, ...widget.taxTypes];
+    showModalBottomSheet<void>(
+      context: context,
+      useRootNavigator: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.8,
+        minChildSize: 0.8,
+        maxChildSize: 0.8,
+        builder: (_, sc) => Column(
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade400,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text('Tax Code',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Expanded(
+              child: ListView.builder(
+                controller: sc,
+                itemCount: options.length,
+                itemBuilder: (_, i) {
+                  final t = options[i];
+                  final label = t == null
+                      ? 'No Tax'
+                      : '${t.taxCode} (${t.taxRate?.toStringAsFixed(0)}%)';
+                  final selected = t?.taxTypeID == _taxType?.taxTypeID;
+                  return ListTile(
+                    title: Text(label),
+                    trailing: selected
+                        ? const Icon(Icons.check, color: Color(0xFF153D81))
+                        : null,
+                    onTap: () {
+                      setState(() => _taxType = t);
+                      Navigator.pop(ctx);
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _apply() {
@@ -2175,6 +2131,7 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final primary = cs.primary;
+    final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5);
 
     return Container(
       decoration: BoxDecoration(
@@ -2199,25 +2156,42 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
               ),
             ),
             const SizedBox(height: 14),
-            // Item title
-            Text(widget.item.stockCode,
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: primary)),
-            if (widget.item.descriptionCtrl.text.isNotEmpty)
-              Text(widget.item.descriptionCtrl.text,
-                  style: TextStyle(fontSize: 12, color: cs.onSurface.withValues(alpha: 0.5)),
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
-            const SizedBox(height: 20),
+            // Item title: StockCode, Desc
+            Text(
+              widget.item.stockCode,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: primary)
+            ),
+            Text(
+              widget.item.descriptionCtrl.text,
+              style: TextStyle(
+                fontSize: 12,
+                color: cs.onSurface.withValues(alpha: 0.5)
+                ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis
+            ),
+            
+            const SizedBox(height: 25),
 
             // ── UOM selector ────────────────────────────────────────────
-            Text('UOM', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
-                color: cs.onSurface.withValues(alpha: 0.5))),
+            Text(
+              'UOM', 
+              style: TextStyle(
+                fontSize: 11, 
+                fontWeight: FontWeight.w600,
+                color: cs.onSurface.withValues(alpha: 0.5)
+              )
+            ),
             const SizedBox(height: 8),
             _loadingUOM
                 ? const SizedBox(height: 44, child: Center(child: DotsLoading()))
                 : _uomList.isEmpty
-                    ? _uomChip(_uom, true, primary, cs, null)
+                    ? uomChip(context, _uom, selected: true)
                     : SizedBox(
-                        height: 44,
+                        height: 35,
                         child: ListView.separated(
                           scrollDirection: Axis.horizontal,
                           padding: const EdgeInsets.only(right: 4),
@@ -2225,38 +2199,45 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
                           separatorBuilder: (_, __) => const SizedBox(width: 8),
                           itemBuilder: (_, i) {
                             final u = _uomList[i];
-                            return _uomChip(u.uom, _uom == u.uom, primary, cs,
-                                () => _onUOMSelected(u));
+                            return uomChip(context, u.uom,
+                                selected: _uom == u.uom,
+                                onTap: () => _onUOMSelected(u));
                           },
                         ),
                       ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 18),
 
             // ── Qty stepper ──────────────────────────────────────────────
-            Text('Quantity', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
-                color: cs.onSurface.withValues(alpha: 0.5))),
+            Text(
+              'Quantity', 
+              style: TextStyle(
+                fontSize: 11, 
+                fontWeight: FontWeight.w600,
+                color: cs.onSurface.withValues(alpha: 0.5)
+              )
+            ),
             const SizedBox(height: 8),
             Row(
               children: [
-                _stepBtn(Icons.remove_rounded, () => _stepQty(-1), primary, cs),
+                stepBtn(context, Icons.remove_rounded, () => _stepQty(-1)),
                 const SizedBox(width: 10),
                 Expanded(
                   child: TextField(
                     controller: _qtyCtrl,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
+                    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))], // ignore: deprecated_member_use
                     textAlign: TextAlign.center,
                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                    decoration: _fieldDeco(null, cs, primary),
+                    decoration: sheetInputDeco(context),
                     onEditingComplete: _clampQty,
                     onTapOutside: (_) => _clampQty(),
                   ),
                 ),
                 const SizedBox(width: 10),
-                _stepBtn(Icons.add_rounded, () => _stepQty(1), primary, cs),
+                stepBtn(context, Icons.add_rounded, () => _stepQty(1)),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
 
             // ── Unit Price + Discount ────────────────────────────────────
             Row(
@@ -2271,9 +2252,9 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
                       TextField(
                         controller: _priceCtrl,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
+                        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))], // ignore: deprecated_member_use
                         style: const TextStyle(fontSize: 14),
-                        decoration: _fieldDeco(null, cs, primary),
+                        decoration: sheetInputDeco(context),
                       ),
                     ],
                   ),
@@ -2291,92 +2272,98 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
                         keyboardType: TextInputType.text,
                         autocorrect: false,
                         enableSuggestions: false,
-                        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.+%]'))],
+                        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.+%]'))], // ignore: deprecated_member_use
                         style: const TextStyle(fontSize: 14),
-                        decoration: _fieldDeco(null, cs, primary).copyWith(
-                          //hintText: 'e.g. 10% or 10%+5',
-                          //hintStyle: TextStyle(fontSize: 12, color: cs.onSurface.withValues(alpha: 0.3)),
-                        ),
+                        decoration: sheetInputDeco(context),
                       ),
                     ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
 
             // ── Tax ──────────────────────────────────────────────────────
             if (widget.enableTax) ...[
-              Text('Tax Code', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
-                  color: cs.onSurface.withValues(alpha: 0.5))),
-              const SizedBox(height: 8),
-              DropdownButtonFormField<TaxType?>(
-                initialValue: _taxType,
-                isExpanded: true,
-                style: const TextStyle(fontSize: 13, color: Colors.black),
-                dropdownColor: Colors.white,
-                decoration: _fieldDeco(null, cs, primary),
-                items: [
-                  const DropdownMenuItem(
-                    value: null,
-                    child: Text('No Tax',
-                        style: TextStyle(fontSize: 13, color: Colors.black54)),
-                  ),
-                  ...widget.taxTypes.map((t) => DropdownMenuItem(
-                        value: t,
-                        child: Text('${t.taxCode} (${t.taxRate?.toStringAsFixed(0)}%)',
-                            style: const TextStyle(fontSize: 13, color: Colors.black)),
-                      )),
-                ],
-                onChanged: (v) => setState(() => _taxType = v),
+              Text(
+                'Tax Code', 
+                style: TextStyle(
+                  fontSize: 11, 
+                  fontWeight: FontWeight.w600,
+                  color: cs.onSurface.withValues(alpha: 0.5)
+                )
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 8),
+              GestureDetector(
+                onTap: () => _pickTaxType(context),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: cs.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _taxType == null
+                              ? 'No Tax'
+                              : '${_taxType!.taxCode} (${_taxType!.taxRate?.toStringAsFixed(0)}%)',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: _taxType == null
+                                ? cs.onSurface.withValues(alpha: 0.4)
+                                : cs.onSurface,
+                          ),
+                        ),
+                      ),
+                      Icon(Icons.expand_more_rounded,
+                          size: 20, color: cs.onSurface.withValues(alpha: 0.4)),
+                    ],
+                  ),
+                ),
+              ),
             ],
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 30),
             // ── Summary ──────────────────────────────────────────────────
             Container(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 color: primary.withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Column(
                 children: [
-                  _summaryRow(
-                    'Subtotal', 
-                    _amtFmt.format(_subtotal), 
-                    cs),
-
-                  const SizedBox(height: 6),
-                    _summaryRow(
-                      _discAmt == 0 ? 'Discount' : 'Discount (${_discCtrl.text})',
-                      '- ${_amtFmt.format(_discAmt)}',
-                      cs,
-                      labelColor: _discAmt == 0 ? cs.onSurface.withValues(alpha: 0.6) : Mycolor.discountTextColor,
-                      valueColor: _discAmt == 0 ? cs.onSurface.withValues(alpha: 0.6) : Mycolor.discountTextColor),
-                  
+                  FormTotalPriceSummaryRow(
+                    label: 'Subtotal',
+                    value: StockCommon.FormatDp(_subtotal, _salesDp),
+                    muted: muted),
+                  FormTotalPriceSummaryRow(
+                    label: 'Discount',
+                    value: '- ${StockCommon.FormatDp(_discAmt, _salesDp)}',
+                    muted: muted,
+                    valueColor: _discAmt == 0 ? muted : Mycolor.discountTextColor),
+                        
                   if (widget.enableTax) ...[
-                    const SizedBox(height: 6),
-                    _summaryRow(
-                      'Tax',
-                      '+ ${_amtFmt.format(_taxAmt)}', 
-                      cs,
-                      labelColor: _taxType?.taxCode == null ? cs.onSurface.withValues(alpha: 0.6) : Mycolor.taxTextColor,
-                      valueColor: _taxType?.taxCode == null ? cs.onSurface.withValues(alpha: 0.6) : Mycolor.taxTextColor),
+                    FormTotalPriceSummaryRow(
+                      label: 'Tax', 
+                      value: '+ ${StockCommon.FormatDp(_taxAmt, _salesDp)}',
+                      muted: muted,
+                      valueColor: _taxAmt == 0 ? muted : Mycolor.taxTextColor),
+                        
                   ],
                   Divider(height: 16, color: primary.withValues(alpha: 0.15)),
-                  _summaryRow(
-                    'Total', 
-                    _amtFmt.format(_lineTotal + (widget.enableTax ? _taxAmt : 0)), 
-                    cs,
-                    bold: true, 
-                    labelColor: primary,
-                    valueColor: primary),
+                  FormTotalPriceSummaryRow(
+                      label: 'Total', 
+                      value: StockCommon.FormatDp(_lineTotal + (widget.enableTax ? _taxAmt : 0), _salesDp),
+                      muted: muted,
+                      valueColor: Mycolor.primary),
+                        
                 ],
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 10),
 
             // ── Apply button ─────────────────────────────────────────────
             SizedBox(
@@ -2393,168 +2380,4 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
     );
   }
 
-  Widget _uomChip(String label, bool selected, Color primary, ColorScheme cs, VoidCallback? onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? primary : primary.withValues(alpha: 0.07),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: selected ? primary : primary.withValues(alpha: 0.2)),
-        ),
-        child: Text(label,
-            style: TextStyle(
-              fontSize: 13, fontWeight: FontWeight.w600,
-              color: selected ? Colors.white : primary,
-            )),
-      ),
-    );
-  }
-
-  Widget _stepBtn(IconData icon, VoidCallback onTap, Color primary, ColorScheme cs) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 44, height: 44,
-        decoration: BoxDecoration(
-          color: primary.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Icon(icon, size: 20, color: primary),
-      ),
-    );
-  }
-
-  Widget _summaryRow(String label, String value, ColorScheme cs,
-      {Color? labelColor, Color? valueColor, bool bold = false}) {
-    return Row(
-      children: [
-        Text(label, 
-          style: TextStyle(
-            fontSize: 12, 
-            color: labelColor ?? cs.onSurface.withValues(alpha: 0.55))),
-        const Spacer(),
-        Text(value, style: TextStyle(
-          fontSize: 12,
-          fontWeight: bold ? FontWeight.w800 : FontWeight.w500,
-          color: valueColor ?? cs.onSurface.withValues(alpha: 0.6),
-        )),
-      ],
-    );
-  }
-
-  InputDecoration _fieldDeco(String? label, ColorScheme cs, Color primary) {
-    return InputDecoration(
-      labelText: label,
-      labelStyle: const TextStyle(fontSize: 12),
-      filled: true,
-      isDense: true,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide(color: primary, width: 1.5),
-      ),
-    );
-  }
-}
-
-
-// ─────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────
-
-class _FieldLabel extends StatelessWidget {
-  final String label;
-  const _FieldLabel({required this.label});
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Text(label,
-            style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.6))),
-      );
-}
-
-class _FieldBox extends StatelessWidget {
-  final Widget child;
-  const _FieldBox({required this.child});
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: child,
-    );
-  }
-}
-
-class _SheetSection extends StatelessWidget {
-  final String label;
-  const _SheetSection({required this.label});
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(label,
-          style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Theme.of(context).colorScheme.primary)),
-    );
-  }
-}
-
-class _SheetField extends StatelessWidget {
-  final TextEditingController ctrl;
-  final String hint;
-  final TextInputType inputType;
-  const _SheetField({
-    required this.ctrl,
-    required this.hint,
-    this.inputType = TextInputType.text,
-  });
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            hint,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: cs.onSurface.withValues(alpha: 0.6),
-            ),
-          ),
-          const SizedBox(height: 5),
-          TextField(
-            controller: ctrl,
-            keyboardType: inputType,
-            style: const TextStyle(fontSize: 14),
-            decoration: InputDecoration(
-              isDense: true,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }

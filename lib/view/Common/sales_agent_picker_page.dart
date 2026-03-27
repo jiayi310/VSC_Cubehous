@@ -317,7 +317,7 @@ class _AgentSortSheetState extends State<_AgentSortSheet> {
                   Text('Sort By', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: primary)),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
-                    initialValue: _sortBy,
+                    value: _sortBy,
                     decoration: InputDecoration(
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                       isDense: true,

@@ -566,7 +566,7 @@ class _CustomerFormPageState extends State<CustomerFormPage> {
         ),
         const SizedBox(height: 6),
         DropdownButtonFormField<T>(
-          initialValue: value,
+          value: value,
           isExpanded: true,
           decoration: InputDecoration(
             filled: true,

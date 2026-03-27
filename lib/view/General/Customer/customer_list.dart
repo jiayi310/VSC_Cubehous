@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import '../../../api/api_endpoints.dart';
 import '../../../api/base_client.dart';
+import '../../../common/direction_chip.dart';
 import '../../../common/dots_loading.dart';
+import '../../../common/pagination_bar.dart';
 import '../../../common/session_manager.dart';
 import '../../../models/customer.dart';
 import '../../../models/customer_type.dart';
@@ -34,14 +36,13 @@ class _CustomerListPageState extends State<CustomerListPage> {
   // Data
   List<Customer> _customers = [];
   bool _isLoading = false;
-  bool _isLoadingMore = false;
   String? _error;
 
   // Pagination
   int _currentPage = 0;
   int _totalCount = 0;
+  int _totalPages = 1;
   static const _pageSize = 20;
-  bool get _hasMore => _customers.length < _totalCount;
 
   // Search, sort & filters
   final _searchController = TextEditingController();
@@ -64,7 +65,6 @@ class _CustomerListPageState extends State<CustomerListPage> {
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(_onScroll);
     _init();
   }
 
@@ -75,34 +75,22 @@ class _CustomerListPageState extends State<CustomerListPage> {
     super.dispose();
   }
 
-  void _onScroll() {
-    if (_scrollController.position.pixels >=
-            _scrollController.position.maxScrollExtent - 200 &&
-        !_isLoadingMore &&
-        _hasMore) {
-      _loadMore();
-    }
-  }
-
   Future<void> _init() async {
     _apiKey = await SessionManager.getApiKey();
     _companyGUID = await SessionManager.getCompanyGUID();
     _userID = await SessionManager.getUserID();
     _userSessionID = await SessionManager.getUserSessionID();
-    await _fetchCustomers(reset: true);
+    await _fetchCustomers(page: 0);
   }
 
-  Future<void> _fetchCustomers({required bool reset}) async {
+  Future<void> _fetchCustomers({required int page}) async {
     _apiKey = await SessionManager.getApiKey();
     _companyGUID = await SessionManager.getCompanyGUID();
     _userSessionID = await SessionManager.getUserSessionID();
-    if (reset) {
-      setState(() {
-        _isLoading = true;
-        _error = null;
-        _currentPage = 0;
-      });
-    }
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
 
     try {
       final response = await BaseClient.post(
@@ -112,7 +100,7 @@ class _CustomerListPageState extends State<CustomerListPage> {
           'companyGUID': _companyGUID,
           'userID': _userID,
           'userSessionID': _userSessionID,
-          'pageIndex': reset ? 0 : _currentPage,
+          'pageIndex': page,
           'pageSize': _pageSize,
           'sortBy': _sortBy,
           'isSortByAscending': _sortAsc,
@@ -126,45 +114,36 @@ class _CustomerListPageState extends State<CustomerListPage> {
       final result =
           CustomerResponse.fromJson(response as Map<String, dynamic>);
       final newItems = result.data ?? [];
+      final totalRecord = result.pagination?.totalRecord ?? newItems.length;
+      final pageSize = result.pagination?.pageSize ?? _pageSize;
 
       setState(() {
-        if (reset) {
-          _customers = newItems;
-        } else {
-          _customers = [..._customers, ...newItems];
-        }
-        _totalCount = result.pagination?.totalRecord ?? newItems.length;
+        _customers = newItems;
+        _currentPage = page;
+        _totalCount = totalRecord;
+        _totalPages = pageSize > 0 ? (totalRecord / pageSize).ceil() : 1;
+        if (_totalPages < 1) _totalPages = 1;
         _isLoading = false;
-        _isLoadingMore = false;
       });
     } catch (e) {
       setState(() {
         _isLoading = false;
-        _isLoadingMore = false;
         _error = e.toString();
       });
     }
   }
 
-  Future<void> _loadMore() async {
-    setState(() {
-      _isLoadingMore = true;
-      _currentPage++;
-    });
-    await _fetchCustomers(reset: false);
-  }
-
-  Future<void> _onRefresh() => _fetchCustomers(reset: true);
+  Future<void> _onRefresh() => _fetchCustomers(page: 0);
 
   void _onSearchSubmit(String value) {
     setState(() => _searchQuery = value.trim());
-    _fetchCustomers(reset: true);
+    _fetchCustomers(page: 0);
   }
 
   void _clearSearch() {
     _searchController.clear();
     setState(() => _searchQuery = '');
-    _fetchCustomers(reset: true);
+    _fetchCustomers(page: 0);
   }
 
   void _showSortSheet() {
@@ -190,7 +169,7 @@ class _CustomerListPageState extends State<CustomerListPage> {
             _filterSalesAgentIDs = salesAgentIDs;
             _filterPriceCategoryList = priceCategoryList;
           });
-          _fetchCustomers(reset: true);
+          _fetchCustomers(page: 0);
         },
         onReset: () {
           setState(() {
@@ -200,7 +179,7 @@ class _CustomerListPageState extends State<CustomerListPage> {
             _filterSalesAgentIDs = [];
             _filterPriceCategoryList = [];
           });
-          _fetchCustomers(reset: true);
+          _fetchCustomers(page: 0);
         },
       ),
     );
@@ -210,8 +189,19 @@ class _CustomerListPageState extends State<CustomerListPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Customers',
-            style: TextStyle(fontWeight: FontWeight.w600)),
+        title: GestureDetector(
+          onDoubleTap: () {
+            if (_scrollController.hasClients) {
+              _scrollController.animateTo(
+                0,
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOut,
+              );
+            }
+          },
+          child: const Text('Customers',
+              style: TextStyle(fontWeight: FontWeight.w600)),
+        ),
         centerTitle: true,
         actions: [
           IconButton(
@@ -224,7 +214,7 @@ class _CustomerListPageState extends State<CustomerListPage> {
                   builder: (_) => const CustomerFormPage(),
                 ),
               );
-              if (created == true) _fetchCustomers(reset: true);
+              if (created == true) _fetchCustomers(page: 0);
             },
           ),
         ],
@@ -317,23 +307,49 @@ class _CustomerListPageState extends State<CustomerListPage> {
     if (_error != null) {
       return _buildError();
     }
-    if (_customers.isEmpty) {
-      return _buildEmpty();
-    }
-    return _buildList();
+    final primary = Theme.of(context).colorScheme.primary;
+    final start = _currentPage * _pageSize + 1;
+    final end = ((_currentPage + 1) * _pageSize).clamp(0, _totalCount);
+    return Column(
+      children: [
+        if (_customers.isEmpty)
+          Expanded(child: _buildEmpty())
+        else
+          Expanded(child: _buildList(start: start, end: end)),
+        PaginationBar(
+          currentPage: _currentPage,
+          totalPages: _totalPages,
+          isLoading: _isLoading,
+          primary: primary,
+          onPrev: _currentPage > 0
+              ? () => _fetchCustomers(page: _currentPage - 1)
+              : null,
+          onNext: _currentPage < _totalPages - 1
+              ? () => _fetchCustomers(page: _currentPage + 1)
+              : null,
+        ),
+      ],
+    );
   }
 
-  Widget _buildList() {
+  Widget _buildList({required int start, required int end}) {
+    final labelColor = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4);
+
     return RefreshIndicator(
       onRefresh: _onRefresh,
       child: ListView.builder(
         controller: _scrollController,
-        itemCount: _customers.length + (_isLoadingMore ? 1 : 0),
+        itemCount: _customers.length + 1,
         itemBuilder: (context, i) {
           if (i == _customers.length) {
-            return const Padding(
-              padding: EdgeInsets.all(24),
-              child: Center(child: DotsLoading()),
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(0, 14, 0, 24),
+              child: Center(
+                child: Text(
+                  'Showing $start–$end of $_totalCount customer${_totalCount == 1 ? '' : 's'}',
+                  style: TextStyle(fontSize: 12, color: labelColor),
+                ),
+              ),
             );
           }
           return _CustomerTile(
@@ -356,7 +372,7 @@ class _CustomerListPageState extends State<CustomerListPage> {
                       CustomerFormPage(customer: _customers[i]),
                 ),
               );
-              if (updated == true) _fetchCustomers(reset: true);
+              if (updated == true) _fetchCustomers(page: 0);
             },
           );
         },
@@ -395,7 +411,7 @@ class _CustomerListPageState extends State<CustomerListPage> {
             ),
             const SizedBox(height: 16),
             FilledButton.icon(
-              onPressed: () => _fetchCustomers(reset: true),
+              onPressed: () => _fetchCustomers(page: 0),
               icon: const Icon(Icons.refresh),
               label: const Text('Retry'),
             ),
@@ -836,7 +852,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                             _label('Sort By', primary),
                             const SizedBox(height: 8),
                             DropdownButtonFormField<String>(
-                              initialValue: _sortBy,
+                              value: _sortBy,
                               decoration: InputDecoration(
                                 border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(10)),
@@ -857,7 +873,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                             Row(
                               children: [
                                 Expanded(
-                                  child: _DirectionChip(
+                                  child: DirectionChip(
                                     label: 'Ascending',
                                     icon: Icons.arrow_upward_rounded,
                                     selected: _sortAsc,
@@ -866,7 +882,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                                 ),
                                 const SizedBox(width: 10),
                                 Expanded(
-                                  child: _DirectionChip(
+                                  child: DirectionChip(
                                     label: 'Descending',
                                     icon: Icons.arrow_downward_rounded,
                                     selected: !_sortAsc,
@@ -962,52 +978,6 @@ class _FilterSheetState extends State<_FilterSheet> {
           visualDensity: VisualDensity.compact,
         );
       }).toList(),
-    );
-  }
-}
-
-class _DirectionChip extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _DirectionChip({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(
-          color: selected ? primary.withValues(alpha: 0.1) : Colors.transparent,
-          border: Border.all(
-              color: selected
-                  ? primary
-                  : Theme.of(context).colorScheme.outline.withValues(alpha: 0.4)),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 16, color: selected ? primary : null),
-            const SizedBox(width: 6),
-            Text(label,
-                style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-                    color: selected ? primary : null)),
-          ],
-        ),
-      ),
     );
   }
 }

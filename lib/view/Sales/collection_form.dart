@@ -1,7 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:cubehous/common/my_color.dart';
+import 'package:cubehous/models/sales_agent.dart';
+import 'package:cubehous/view/Common/customer_picker_page.dart';
+import 'package:cubehous/view/Common/decoration.dart';
+import 'package:cubehous/view/Common/sales_agent_picker_page.dart';
+import 'package:cubehous/view/Sales/collection_form_sales_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import '../../api/api_endpoints.dart';
@@ -57,19 +64,26 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
   int _userID = 0;
   String _userSessionID = '';
 
+  bool get _isEditMode => widget.initialDoc != null;
+  int _editDocID = 0;
+  String _editDocNo = '';
+  final _formScrollCtrl = ScrollController();
+
   // Header state
   DateTime _docDate = DateTime.now();
   Customer? _selectedCustomer;
+  SalesAgent? _selectedSalesAgent;
   final _salesAgentCtrl = TextEditingController();
+  final _refNoCtrl = TextEditingController();
+  final _paymentTotalCtrl = TextEditingController(text: '0');
 
   // Payment fields
   String? _selectedPaymentType;
   List<PaymentTypeItem> _paymentTypes = [];
   bool _loadingPaymentTypes = true;
   bool _paymentTypesError = false;
-  final _refNoCtrl = TextEditingController();
-  final _paymentTotalCtrl = TextEditingController(text: '0');
-
+  bool _loadingDropdowns = true;
+ 
   // Selected orders
   final List<_SelectedOrder> _selectedOrders = [];
 
@@ -77,21 +91,25 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
   String? _imageBase64;
 
   // UI state
+  bool _footerExpanded = false;
+  bool _docExpanded = true;
+  bool _paymentExpanded = true;
+  bool _ordersExpanded = true;
+  bool _attachmentExpanded = true;
   bool _isSaving = false;
 
-  final _dateFmt = DateFormat('dd MMM yyyy');
-  final _amtFmt = NumberFormat('#,##0.00');
+  late DateFormat _dateFmt;
+  late NumberFormat _amtFmt;
+  late String _currency = '';
 
   // ── Computed getters ────────────────────────────────────────────────
 
-  double get _totalSalesAmt =>
-      _selectedOrders.fold(0.0, (s, o) => s + o.sale.finalTotal);
+  double get _totalOutstanding {
+    final salesOutstanding = _selectedOrders.fold(0.0, (s, o) => s + o.sale.outstanding);
+    final paymentTotal = double.tryParse(_paymentTotalCtrl.text) ?? 0.0;
+    return salesOutstanding - paymentTotal;
+  }
 
-  double get _totalOutstanding =>
-      _selectedOrders.fold(0.0, (s, o) => s + o.sale.outstanding);
-
-  double get _totalPaymentAmt =>
-      _selectedOrders.fold(0.0, (s, o) => s + o.paymentAmt);
 
   // ── Lifecycle ───────────────────────────────────────────────────────
 
@@ -104,6 +122,7 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
 
   @override
   void dispose() {
+    _formScrollCtrl.dispose();
     _salesAgentCtrl.dispose();
     _refNoCtrl.dispose();
     _paymentTotalCtrl.dispose();
@@ -113,16 +132,176 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
     super.dispose();
   }
 
-  bool get _isEdit => widget.initialDoc != null;
-
   Future<void> _init() async {
     _apiKey = await SessionManager.getApiKey();
     _companyGUID = await SessionManager.getCompanyGUID();
     _userID = await SessionManager.getUserID();
     _userSessionID = await SessionManager.getUserSessionID();
-    if (_isEdit) _initFromDoc(widget.initialDoc!);
-    await _loadPaymentTypes();
+    final results = await Future.wait([
+      SessionManager.getSalesDecimalPoint(),
+      SessionManager.getDateFormat(),
+      SessionManager.getCurrencySymbol(),
+    ]);
+    if (mounted) {
+      setState(() {
+        final dp = results[0] as int;
+        _amtFmt = NumberFormat('#,##0.${'0' * dp}');
+        final de = results[1] as String;
+        _dateFmt = DateFormat(de);
+        _currency = results[2] as String;
+      });
+    }
+    
+    try {
+      final result = await BaseClient.post(
+        ApiEndpoints.getPaymentTypeList,
+        body: {
+          'apiKey': _apiKey,
+          'companyGUID': _companyGUID,
+          'userID': _userID,
+          'userSessionID': _userSessionID
+        },
+      );
+      final raw = result as List<dynamic>;
+      final list = raw.map((e) {
+        if (e is String) return PaymentTypeItem(paymentType: e);
+        if (e is Map<String, dynamic>) return PaymentTypeItem.fromJson(e);
+        return PaymentTypeItem(paymentType: e.toString());
+      }).where((pt) => pt.paymentType.isNotEmpty).toList();
+      if (mounted) {
+        setState(() {
+          _paymentTypes = list;
+          _loadingPaymentTypes = false;
+          _loadingDropdowns = false;
+        });
+      }
+
+      await _checkAndRestoreDraft();
+      if (_isEditMode && widget.initialDoc != null) {
+        if (mounted) setState(() => _initFromDoc(widget.initialDoc!));
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loadingPaymentTypes = false;
+          _paymentTypesError = true;
+          _loadingDropdowns = false;
+        });
+      }
+    }
   }
+
+  bool get _isEdit => widget.initialDoc != null;
+
+// ── Draft helpers ─────────────────────────────────────────────────────
+  bool get _hasChanges =>
+      _selectedCustomer != null ||
+      _selectedOrders.isNotEmpty ||
+      _refNoCtrl.text.isNotEmpty ||
+      _paymentTotalCtrl.text.isNotEmpty ||
+      _selectedSalesAgent != null ;
+
+  Future<void> _saveDraft() async {
+    final draft = {
+      'docDate': _docDate.toIso8601String(),
+      'refNo': _refNoCtrl.text,
+      'paymentType': _selectedPaymentType,
+      'paymentTotal': _paymentTotalCtrl.text,
+      'imageBase64': _imageBase64,
+      'customer': _selectedCustomer == null ? null : {
+        'customerID': _selectedCustomer!.customerID,
+        'customerCode': _selectedCustomer!.customerCode,
+        'name': _selectedCustomer!.name,
+        'name2': _selectedCustomer!.name2,
+        'address1': _selectedCustomer!.address1,
+        'address2': _selectedCustomer!.address2,
+        'address3': _selectedCustomer!.address3,
+        'address4': _selectedCustomer!.address4,
+        'priceCategory': _selectedCustomer!.priceCategory,
+        'customerType': _selectedCustomer!.customerType,
+        'salesAgent': _selectedCustomer!.salesAgent,
+      },
+      'salesAgent': _selectedSalesAgent == null ? null : {
+        'salesAgentID': _selectedSalesAgent!.salesAgentID,
+        'name': _selectedSalesAgent!.name,
+        'description': _selectedSalesAgent!.description,
+        'isDisabled': _selectedSalesAgent!.isDisabled,
+      },
+      'orders': _selectedOrders.map((o) => {
+        'docID': o.sale.docID,
+        'docNo': o.sale.docNo,
+        'docDate': o.sale.docDate,
+        'customerID': o.sale.customerID,
+        'customerCode': o.sale.customerCode,
+        'customerName': o.sale.customerName,
+        'salesAgent': o.sale.salesAgent,
+        'subtotal': o.sale.subtotal,
+        'taxAmt': o.sale.taxAmt,
+        'finalTotal': o.sale.finalTotal,
+        'paymentTotal': o.sale.paymentTotal,
+        'outstanding': o.sale.outstanding,
+        'paymentAmt': o.paymentAmtCtrl.text,
+        'collectMappingID': o.collectMappingID,
+      }).toList(),
+    };
+    await SessionManager.saveCollectionDraft(jsonEncode(draft));
+  }
+
+  void _restoreDraft(Map<String, dynamic> j) {
+    _docDate = DateTime.tryParse(j['docDate'] as String? ?? '') ?? DateTime.now();
+    _refNoCtrl.text = j['refNo'] as String? ?? '';
+    _selectedPaymentType = j['paymentType'] as String?;
+    _imageBase64 = j['imageBase64'] as String?;
+
+    final cj = j['customer'] as Map<String, dynamic>?;
+    if (cj != null) _selectedCustomer = Customer.fromJson(cj);
+
+    final aj = j['salesAgent'] as Map<String, dynamic>?;
+    if (aj != null) {
+      _selectedSalesAgent = SalesAgent(
+        salesAgentID: (aj['salesAgentID'] as int?) ?? 0,
+        name: (aj['name'] as String?) ?? '',
+        description: aj['description'] as String?,
+        isDisabled: (aj['isDisabled'] as bool?) ?? false,
+      );
+      _salesAgentCtrl.text = _selectedSalesAgent!.name ?? '';
+    }
+
+    for (final oj in (j['orders'] as List<dynamic>? ?? [])) {
+      final m = oj as Map<String, dynamic>;
+      final sale = SalesListItem(
+        docID: (m['docID'] as int?) ?? 0,
+        docNo: (m['docNo'] as String?) ?? '',
+        docDate: (m['docDate'] as String?) ?? '',
+        customerID: (m['customerID'] as int?) ?? 0,
+        customerCode: (m['customerCode'] as String?) ?? '',
+        customerName: (m['customerName'] as String?) ?? '',
+        salesAgent: m['salesAgent'] as String?,
+        subtotal: (m['subtotal'] as num?)?.toDouble() ?? 0,
+        taxAmt: (m['taxAmt'] as num?)?.toDouble() ?? 0,
+        finalTotal: (m['finalTotal'] as num?)?.toDouble() ?? 0,
+        paymentTotal: (m['paymentTotal'] as num?)?.toDouble() ?? 0,
+        outstanding: (m['outstanding'] as num?)?.toDouble() ?? 0,
+        description: null,
+        remark: null,
+        isVoid: false,
+      );
+      final paymentAmt = double.tryParse(m['paymentAmt'] as String? ?? '') ?? sale.outstanding;
+      final collectMappingID = (m['collectMappingID'] as int?) ?? 0;
+      _selectedOrders.add(_SelectedOrder.fromMapping(
+        sale,
+        paymentAmt: paymentAmt,
+        collectMappingID: collectMappingID,
+      ));
+    }
+
+    // Restore payment total without triggering distribute
+    final paymentTotal = j['paymentTotal'] as String? ?? '';
+    _paymentTotalCtrl.removeListener(_distributePayment);
+    _paymentTotalCtrl.text = paymentTotal;
+    _paymentTotalCtrl.addListener(_distributePayment);
+  }
+  
 
   void _initFromDoc(CollectionDoc doc) {
     try {
@@ -178,41 +357,101 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
     _paymentTotalCtrl.addListener(_distributePayment);
   }
 
-  Future<void> _loadPaymentTypes() async {
-    _apiKey = await SessionManager.getApiKey();
-    _companyGUID = await SessionManager.getCompanyGUID();
-    _userSessionID = await SessionManager.getUserSessionID();
+  Future<void> _checkAndRestoreDraft() async {
+    if (_isEditMode) return;
+    final raw = await SessionManager.getCollectionDraft();
+    if (raw == null || raw.isEmpty) return;
     try {
-      final result = await BaseClient.post(
-        ApiEndpoints.getPaymentTypeList,
-        body: {
-          'apiKey': _apiKey,
-          'companyGUID': _companyGUID,
-          'userID': _userID,
-          'userSessionID': _userSessionID
-        },
-      );
-      final raw = result as List<dynamic>;
-      final list = raw.map((e) {
-        if (e is String) return PaymentTypeItem(paymentType: e);
-        if (e is Map<String, dynamic>) return PaymentTypeItem.fromJson(e);
-        return PaymentTypeItem(paymentType: e.toString());
-      }).where((pt) => pt.paymentType.isNotEmpty).toList();
-      if (mounted) {
-        setState(() {
-          _paymentTypes = list;
-          _loadingPaymentTypes = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _loadingPaymentTypes = false;
-          _paymentTypesError = true;
-        });
-      }
-      _showError('Failed to load payment types: $e');
+      final j = jsonDecode(raw) as Map<String, dynamic>;
+      if (mounted) setState(() => _restoreDraft(j));
+    } catch (_) {
+      await SessionManager.clearCollectionDraft();
     }
+  }
+
+  Future<bool> _onWillPop() async {
+    if (_isEditMode) return true;
+    if (!_hasChanges) return true;
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          contentPadding: EdgeInsets.zero,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 24),
+              Container(
+                width: 64, height: 64,
+                decoration: BoxDecoration(
+                  color: cs.primary.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.save_outlined, size: 30, color: cs.primary),
+              ),
+              const SizedBox(height: 16),
+              const Text('Save Draft?',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  'Do you want to save your progress as a draft?',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13,
+                      color: cs.onSurface.withValues(alpha: 0.6), height: 1.5),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Divider(height: 1, color: cs.outline.withValues(alpha: 0.15)),
+              IntrinsicHeight(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: const RoundedRectangleBorder(
+                              borderRadius: BorderRadius.only(
+                                  bottomLeft: Radius.circular(20))),
+                        ),
+                        onPressed: () => Navigator.pop(ctx, 'discard'),
+                        child: Text('Discard',
+                            style: TextStyle(fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: cs.onSurface.withValues(alpha: 0.5))),
+                      ),
+                    ),
+                    VerticalDivider(width: 1, color: cs.outline.withValues(alpha: 0.15)),
+                    Expanded(
+                      child: TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: const RoundedRectangleBorder(
+                              borderRadius: BorderRadius.only(
+                                  bottomRight: Radius.circular(20))),
+                        ),
+                        onPressed: () => Navigator.pop(ctx, 'save'),
+                        child: Text('Save Draft',
+                            style: TextStyle(fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: cs.primary)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (result == null) return false; // cancelled
+    if (result == 'save') await _saveDraft();
+    if (result == 'discard') await SessionManager.clearCollectionDraft();
+    return true;
   }
 
   // ── Payment distribution ────────────────────────────────────────────
@@ -227,22 +466,22 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
     setState(() {});
   }
 
-  // ── Customer picker ─────────────────────────────────────────────────
 
   Future<void> _pickCustomer() async {
-    final customer = await showModalBottomSheet<Customer>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _CustomerPickerSheet(
-        apiKey: _apiKey,
-        companyGUID: _companyGUID,
-        userID: _userID,
-        userSessionID: _userSessionID,
+    final customer = await Navigator.push<Customer>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CustomerPickerPage(
+          apiKey: _apiKey,
+          companyGUID: _companyGUID,
+          userID: _userID,
+          userSessionID: _userSessionID,
+        ),
       ),
     );
-    if (customer != null) {
-      setState(() {
+    if (customer == null || !mounted) return;
+
+    setState(() {
         _selectedCustomer = customer;
         _salesAgentCtrl.text = customer.salesAgent;
         for (final o in _selectedOrders) {
@@ -251,16 +490,15 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
         _selectedOrders.clear();
         _paymentTotalCtrl.text = '0';
       });
-      await _openSalesPicker();
-    }
+      await _pickCustomerSales();
   }
 
-  Future<void> _openSalesPicker() async {
+  Future<void> _pickCustomerSales() async {
     if (_selectedCustomer == null) return;
     final result = await Navigator.push<List<SalesListItem>>(
       context,
       MaterialPageRoute(
-        builder: (_) => _SalesPickerPage(
+        builder: (_) => CollectionSalesPickerPage(
           apiKey: _apiKey,
           companyGUID: _companyGUID,
           userID: _userID,
@@ -281,11 +519,16 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
           _selectedOrders.add(existing[sale.docID] ?? _SelectedOrder(sale));
         }
       });
+      final currentTotal = double.tryParse(_paymentTotalCtrl.text) ?? 0;
+      if (currentTotal == 0) {
+        final total = _selectedOrders.fold(0.0, (s, o) => s + o.sale.outstanding);
+        _paymentTotalCtrl.removeListener(_distributePayment);
+        _paymentTotalCtrl.text = total.toStringAsFixed(2);
+        _paymentTotalCtrl.addListener(_distributePayment);
+      }
       _distributePayment();
     }
   }
-
-  // ── Date picker ─────────────────────────────────────────────────────
 
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
@@ -297,7 +540,20 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
     if (picked != null) setState(() => _docDate = picked);
   }
 
-  // ── Photo picker ────────────────────────────────────────────────────
+  Future<void> _pickSalesAgent() async {
+    final picked = await Navigator.push<SalesAgent>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SalesAgentPickerPage(
+          apiKey: _apiKey,
+          companyGUID: _companyGUID,
+          userID: _userID,
+          userSessionID: _userSessionID,
+        ),
+      ),
+    );
+    if (picked != null) setState(() => _selectedSalesAgent = picked);
+  }
 
   Future<void> _pickPhoto(ImageSource source) async {
     try {
@@ -417,15 +673,19 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
               'customerID': c.customerID,
               'customerCode': c.customerCode,
               'customerName': c.name,
-              'salesAgent': _salesAgentCtrl.text.trim(),
-              'paymentType': _selectedPaymentType,
-              'refNo': refNo,
-              'paymentTotal': paymentTotal,
               'address1': c.address1,
               'address2': c.address2,
               'address3': c.address3,
               'address4': c.address4,
+              'salesAgent': _salesAgentCtrl.text.trim(),
+              'paymentType': _selectedPaymentType,
+              'refNo': refNo,
+              'paymentTotal': paymentTotal,
               'image': _imageBase64,
+              'lastModifiedUserID': _userID,
+              'lastModifiedDateTime': DateTime.now().toIso8601String(),
+              'createdUserID': _userID,
+              'createdDateTime': DateTime.now().toIso8601String(),
               'collectMappings': collectMappings,
             },
           },
@@ -433,9 +693,15 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
       } else {
         final collectMappings = _selectedOrders
             .map((o) => {
+                  'collectMappingID': 0,
+                  'collectDocID': 0,
+                  'paymentAmt': o.paymentAmt,
                   'salesDocID': o.sale.docID,
                   'salesDocNo': o.sale.docNo,
-                  'paymentAmt': o.paymentAmt,
+                  'salesDocDate': o.sale.docDate,
+                  'salesAgent': o.sale.salesAgent,
+                  'salesFinalTotal': o.sale.finalTotal,
+                  'salesOutstanding': o.sale.outstanding,
                   'editOutstanding': o.sale.outstanding - o.paymentAmt,
                   'editPaymentAmt': o.paymentAmt,
                 })
@@ -447,7 +713,7 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
             'companyGUID': _companyGUID,
             'userID': _userID,
             'userSessionID': _userSessionID,
-            'collectForm': {
+            'collectionForm': {
               'docID': 0,
               'docNo': '',
               'docDate': _docDate.toIso8601String(),
@@ -464,6 +730,10 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
               'address3': c.address3,
               'address4': c.address4,
               'image': _imageBase64,
+              'lastModifiedUserID': _userID,
+              'lastModifiedDateTime': DateTime.now().toIso8601String(),
+              'createdUserID': _userID,
+              'createdDateTime': DateTime.now().toIso8601String(),
               'collectMappings': collectMappings,
             },
           },
@@ -486,337 +756,348 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
     ));
   }
 
-  // ── Field decoration helper ─────────────────────────────────────────
-
-  InputDecoration _fieldDeco(String label, ColorScheme cs, Color primary) =>
-      InputDecoration(
-        labelText: label,
-        filled: true,
-        isDense: true,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: BorderSide.none),
-        enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: BorderSide.none),
-        focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: BorderSide(color: primary)),
-      );
-
-  Widget _sectionHeader(String title, Color primary) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 20, 0, 8),
-      child: Text(
-        title,
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-          color: primary,
-          letterSpacing: 0.5,
-        ),
-      ),
-    );
-  }
-
-  Widget _summaryRow(
-    String label,
-    String value,
-    Color color,
-    ColorScheme cs, {
-    bool bold = false,
-  }) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-              fontSize: 13, color: cs.onSurface.withValues(alpha: 0.6)),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: bold ? FontWeight.w700 : FontWeight.w600,
-            color: color,
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ── Build ────────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final primary = cs.primary;
 
-    return Scaffold(
+    return PopScope (
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final nav = Navigator.of(context);
+        final canPop = await _onWillPop();
+        if (canPop && mounted) nav.pop();
+      },
+      child: Scaffold(
       appBar: AppBar(
-        title: Text(
-          _isEdit ? 'Edit Collection' : 'New Collection',
-          style: const TextStyle(fontWeight: FontWeight.w600),
+        title: GestureDetector(
+          onDoubleTap: () => _formScrollCtrl.animateTo(
+            0,
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.easeOutCubic,
+          ),
+          child: Text(_isEditMode ? 'Edit Collection' : 'New Collection',
+              style: const TextStyle(fontWeight: FontWeight.w600)),
         ),
         centerTitle: true,
         actions: [
-          if (_isSaving)
-            const Padding(
-                padding: EdgeInsets.all(16), child: DotsLoading(dotSize: 6))
-          else
-            IconButton(
-              icon: const Icon(Icons.check),
-              tooltip: 'Save',
-              onPressed: _save,
-            ),
+
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // ── DOCUMENT ─────────────────────────────────────
-                  _sectionHeader('DOCUMENT', primary),
-
-                  // Date picker row
-                  InkWell(
-                    onTap: _pickDate,
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: cs.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                            color: cs.outline.withValues(alpha: 0.0)),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.calendar_today_outlined,
-                              size: 16,
-                              color: cs.onSurface.withValues(alpha: 0.5)),
-                          const SizedBox(width: 10),
-                          Text(
-                            _dateFmt.format(_docDate),
-                            style: const TextStyle(
-                                fontSize: 14, fontWeight: FontWeight.w500),
-                          ),
-                          const Spacer(),
-                          Icon(Icons.edit_outlined,
-                              size: 16,
-                              color: cs.onSurface.withValues(alpha: 0.3)),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 10),
-
-                  // Customer picker row
-                  InkWell(
-                    onTap: _pickCustomer,
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: cs.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                            color: cs.outline.withValues(alpha: 0.0)),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.person_outline,
-                              size: 16,
-                              color: cs.onSurface.withValues(alpha: 0.5)),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: _selectedCustomer == null
-                                ? Text(
-                                    'Select Customer',
-                                    style: TextStyle(
-                                        fontSize: 14,
-                                        color: cs.onSurface
-                                            .withValues(alpha: 0.4)),
-                                  )
-                                : Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        _selectedCustomer!.name,
-                                        style: const TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w600),
-                                      ),
-                                      Text(
-                                        _selectedCustomer!.customerCode,
-                                        style: TextStyle(
-                                            fontSize: 12, color: primary),
-                                      ),
-                                    ],
-                                  ),
-                          ),
-                          Icon(Icons.chevron_right,
-                              size: 18,
-                              color: cs.onSurface.withValues(alpha: 0.3)),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  // ── PAYMENT ───────────────────────────────────────
-                  _sectionHeader('PAYMENT', primary),
-
-                  // Payment Type dropdown
-                  if (_loadingPaymentTypes)
-                    const SizedBox(
-                        height: 48,
-                        child: Center(child: DotsLoading(dotSize: 5)))
-                  else if (_paymentTypesError)
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _loadingPaymentTypes = true;
-                          _paymentTypesError = false;
-                        });
-                        _loadPaymentTypes();
-                      },
-                      icon: const Icon(Icons.refresh, size: 16),
-                      label: const Text('Retry loading payment types'),
-                    )
-                  else
-                    DropdownButtonFormField<String>(
-                      initialValue: _selectedPaymentType,
-                      decoration: _fieldDeco('Payment Type *', cs, primary),
-                      items: _paymentTypes
-                          .map((pt) => DropdownMenuItem(
-                                value: pt.paymentType,
-                                child: Text(pt.paymentType,
-                                    style: const TextStyle(fontSize: 14)),
-                              ))
-                          .toList(),
-                      onChanged: (v) =>
-                          setState(() => _selectedPaymentType = v),
-                    ),
-
-                  const SizedBox(height: 10),
-
-                  // Ref No
-                  TextFormField(
-                    controller: _refNoCtrl,
-                    style: const TextStyle(fontSize: 14),
-                    decoration: _fieldDeco('Ref No', cs, primary),
-                  ),
-
-                  const SizedBox(height: 10),
-
-                  // Payment Total
-                  TextFormField(
-                    controller: _paymentTotalCtrl,
-                    style: const TextStyle(fontSize: 14),
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.allow(
-                          RegExp(r'^\d*\.?\d{0,2}')),
-                    ],
-                    decoration:
-                        _fieldDeco('Payment Total', cs, primary).copyWith(
-                      prefixText: 'RM ',
-                    ),
-                  ),
-
-                  // ── ATTACHED SALES ────────────────────────────────
-                  _sectionHeader('ATTACHED SALES', primary),
-
-                  // Header row: count + action button
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      body: _loadingDropdowns 
+        ? const Center(child: DotsLoading())
+        : Stack(
+          children: [
+            Column(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                  controller: _formScrollCtrl,
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Attached Sales (${_selectedOrders.length})',
-                        style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: cs.onSurface.withValues(alpha: 0.7)),
-                      ),
-                      if (_selectedCustomer != null)
-                        TextButton(
-                          onPressed: _openSalesPicker,
-                          child: Text(
-                            _selectedOrders.isEmpty
-                                ? 'Add Sales'
-                                : 'Change Sales',
-                            style:
-                                TextStyle(fontSize: 13, color: primary),
-                          ),
-                        )
-                      else
-                        Text(
-                          'Select a customer first',
-                          style: TextStyle(
-                              fontSize: 12,
-                              fontStyle: FontStyle.italic,
-                              color:
-                                  cs.onSurface.withValues(alpha: 0.4)),
+                      // ── DOCUMENT ─────────────────────────────────────
+                      FormSectionHeader(
+                        icon: Icons.receipt_long_outlined,
+                        title: 'Document',
+                        expanded: _docExpanded,
+                        onToggle: () => setState(() => _docExpanded = !_docExpanded)),
+                      AnimatedSize(
+                          duration: const Duration(milliseconds: 220),
+                          curve: Curves.easeInOut,
+                          child: _docExpanded
+                              ? Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    FieldLabel(label: 'Date'),
+                                    InkWell(
+                                      onTap: _pickDate,
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: FieldBox(
+                                        child: Row(
+                                          children: [
+                                            const Icon(Icons.calendar_today_outlined, size: 18),
+                                            const SizedBox(width: 8),
+                                            Text(_dateFmt.format(_docDate),
+                                                style: const TextStyle(fontSize: 14)),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    // ── Customer ────────────────────────
+                                    FieldLabel(label: 'Customer *'),
+                                    FieldBox(
+                                      child: Row(
+                                        children: [
+                                          const Icon(Icons.person_outline, size: 18),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: InkWell(
+                                              onTap: _pickCustomer,
+                                              child: _selectedCustomer == null
+                                                  ? Text(
+                                                      'Select customer',
+                                                      style: TextStyle(
+                                                          fontSize: 14,
+                                                          color: Theme.of(context)
+                                                              .colorScheme
+                                                              .onSurface
+                                                              .withValues(alpha: 0.4)),
+                                                    )
+                                                  : Column(
+                                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                                      children: [
+                                                        Text(_selectedCustomer!.customerCode,
+                                                            style: TextStyle(
+                                                                fontSize: 12,
+                                                                fontWeight: FontWeight.w800)),
+                                                        Text(_selectedCustomer!.name,
+                                                            style: const TextStyle(
+                                                                fontSize: 14,
+                                                                fontWeight: FontWeight.w600)),
+                                                      ],
+                                                    ),
+                                            ),
+                                          ),
+                                          Icon(Icons.chevron_right,
+                                            size: 18,
+                                            color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurface
+                                              .withValues(alpha: 0.3)),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    // ── Sales Agent ──────────────────────
+                                    FieldLabel(label: 'Sales Agent'),
+                                    InkWell(
+                                      onTap: _pickSalesAgent,
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: FieldBox(
+                                        child: Row(
+                                          children: [
+                                            const Icon(Icons.badge_outlined, size: 18),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: _selectedSalesAgent == null
+                                                  ? Text(
+                                                      'Select sales agent',
+                                                      style: TextStyle(
+                                                          fontSize: 14,
+                                                          color: Theme.of(context)
+                                                              .colorScheme
+                                                              .onSurface
+                                                              .withValues(alpha: 0.4)),
+                                                    )
+                                                  : Text(
+                                                      _selectedSalesAgent!.name ?? '',
+                                                      style: const TextStyle(
+                                                          fontSize: 14,
+                                                          fontWeight: FontWeight.w600,
+                                                          ),
+                                                    ),
+                                            ),
+                                            if (_selectedSalesAgent != null)
+                                              GestureDetector(
+                                                onTap: () => setState(() => _selectedSalesAgent = null),
+                                                child: Icon(Icons.clear,
+                                                    size: 16,
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .onSurface
+                                                        .withValues(alpha: 0.4)),
+                                              )
+                                            else
+                                              Icon(Icons.chevron_right,
+                                                  size: 18,
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onSurface
+                                                      .withValues(alpha: 0.3)),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                  ],
+                                )
+                              : const SizedBox.shrink(),
                         ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 4),
-
-                  // Selected order cards
-                  ..._selectedOrders.map((o) => Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _buildSalesOrderCard(o, cs, primary),
-                      )),
-
-                  if (_selectedOrders.isEmpty)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 20),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                            color: cs.outline.withValues(alpha: 0.2)),
-                      ),
-                      child: Center(
-                        child: Text(
-                          'No sales attached',
-                          style: TextStyle(
-                              fontSize: 13,
-                              color:
-                                  cs.onSurface.withValues(alpha: 0.4)),
+            
+                      // ── PAYMENT ───────────────────────────────────────
+                      FormSectionHeader(
+                        icon: Icons.list_alt_outlined,
+                        title: 'Payment',
+                        expanded: _paymentExpanded,
+                        onToggle: () => setState(() => _paymentExpanded = !_paymentExpanded),),
+                      AnimatedSize(
+                          duration: const Duration(milliseconds: 220),
+                          curve: Curves.easeInOut,
+                          child: _paymentExpanded
+                              ? Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    FieldLabel(label: 'PaymentType'),
+                                    // Payment Type dropdown
+                                    if (_loadingPaymentTypes)
+                                      const SizedBox(
+                                          height: 48,
+                                          child: Center(child: DotsLoading(dotSize: 5)))
+                                    else
+                                      DropdownButtonFormField<String>(
+                                        value: _selectedPaymentType,
+                                        decoration: formInputDeco(context),
+                                        items: _paymentTypes
+                                            .map((pt) => DropdownMenuItem(
+                                                  value: pt.paymentType,
+                                                  child: Text(pt.paymentType,
+                                                      style: const TextStyle(fontSize: 14)),
+                                                ))
+                                            .toList(),
+                                        onChanged: (v) =>
+                                            setState(() => _selectedPaymentType = v),
+                                      ),
+                                    const SizedBox(height: 12),
+                                    FieldLabel(label: 'Ref. No.'),
+                                    TextFormField(
+                                      controller: _refNoCtrl,
+                                      style: const TextStyle(fontSize: 14),
+                                      decoration: formInputDeco(context),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    FieldLabel(label: 'Payment Total'),
+                                    TextFormField(
+                                      controller: _paymentTotalCtrl,
+                                      style: const TextStyle(fontSize: 14),
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(decimal: true),
+                                      inputFormatters: [
+                                        FilteringTextInputFormatter.allow(
+                                            RegExp(r'^\d*\.?\d{0,2}')),
+                                      ],
+                                      decoration:
+                                          formInputDeco(context).copyWith(
+                                        prefixText: '$_currency ',
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                  ],
+                                )
+                              : const SizedBox.shrink(),
                         ),
-                      ),
-                    ),
+                      
+                      // ── ATTACHED SALES ───────────────────────────────────────
+                      FormSectionHeader(
+                        icon: Icons.list_alt_outlined,
+                        title: 'ATTACHED SALES',
+                        expanded: _ordersExpanded,
+                        onToggle: () => setState(() => _ordersExpanded = !_ordersExpanded),
+                        badge: '${_selectedOrders.length}'),
+                      AnimatedSize(
+                          duration: const Duration(milliseconds: 220),
+                          curve: Curves.easeInOut,
+                          child: _ordersExpanded
+                              ? Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    SlidableAutoCloseBehavior(
+                                      child: Column(
+                                        children: [
+                                          ..._selectedOrders.map((o) => Padding(
+                                            padding: const EdgeInsets.only(bottom: 10),
+                                            child: Slidable(
+                                              key: ValueKey(o.sale.docID),
+                                              endActionPane: ActionPane(
+                                                motion: const DrawerMotion(),
+                                                extentRatio: 0.25,
+                                                children: [
+                                                  CustomSlidableAction(
+                                                    onPressed: (_) {
+                                                      setState(() {
+                                                        o.dispose();
+                                                        _selectedOrders.remove(o);
+                                                      });
+                                                    },
+                                                    backgroundColor: Colors.red.withValues(alpha: 0.12),
+                                                    child: const Column(
+                                                      mainAxisAlignment: MainAxisAlignment.center,
+                                                      children: [
+                                                        Icon(Icons.delete_outline, size: 26, color: Colors.red),
+                                                        SizedBox(height: 4),
+                                                        Text('Remove', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.red)),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              child: _buildSalesOrderCard(o, cs, primary),
+                                            ),
+                                          )),
+                                          if (_selectedOrders.isEmpty)
+                                            Container(
+                                              width: double.infinity,
+                                              padding: const EdgeInsets.symmetric(
+                                                  horizontal: 16, vertical: 20),
+                                              decoration: BoxDecoration(
+                                                borderRadius: BorderRadius.circular(12),
+                                                border: Border.all(
+                                                    color: cs.outline.withValues(alpha: 0.2)),
+                                              ),
+                                              child: Center(
+                                                child: Text(
+                                                  'No sales attached',
+                                                  style: TextStyle(
+                                                      fontSize: 13,
+                                                      color: cs.onSurface.withValues(alpha: 0.4)),
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                  ],
+                                )
+                              : const SizedBox.shrink(),
+                        ),
 
-                  // ── RECEIPT (Optional) ────────────────────────────
-                  _sectionHeader('RECEIPT (Optional)', primary),
-
-                  _buildPhotoSection(cs),
-
-                  const SizedBox(height: 24),
+                      // ── ATTACHMENT────────────────────────────
+                      FormSectionHeader(
+                        icon: Icons.notes_outlined,
+                        title: 'ATTACHMENT',
+                        expanded: _attachmentExpanded,
+                        onToggle: () => setState(() => _attachmentExpanded = !_attachmentExpanded)),
+                              
+                      _buildPhotoSection(cs),
+                      const SizedBox(height: 50),
                 ],
               ),
             ),
           ),
-
-          // ── Sticky bottom bar ────────────────────────────────────
-          _buildBottomBar(cs, primary),
+          _buildTotalsFooter(),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: FilledButton(
+                      onPressed: _isSaving ? null : _save,
+                      child: Text(
+                          _isEditMode ? 'Update' : 'Save',
+                          style: const TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ),
         ],
       ),
+          ],
+        )
+    ),
     );
   }
 
@@ -870,11 +1151,11 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
                     color: cs.onSurface.withValues(alpha: 0.55)),
               ),
               Text(
-                'Outstanding: RM ${_amtFmt.format(o.sale.outstanding)}',
+                'O/S: RM ${_amtFmt.format(o.sale.outstanding)}',
                 style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: Colors.orange),
+                    color: Mycolor.secondary),
               ),
             ],
           ),
@@ -890,22 +1171,9 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
                   RegExp(r'^\d*\.?\d{0,2}')),
             ],
             onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(
-              labelText: 'Payment Amount',
-              prefixText: 'RM ',
-              filled: true,
-              isDense: true,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide.none),
-              enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide.none),
-              focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: primary)),
+            decoration: formInputDeco(
+              context,
+              prefixText: '$_currency ',
             ),
           ),
         ],
@@ -997,635 +1265,86 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
 
   // ── Bottom bar ───────────────────────────────────────────────────────
 
-  Widget _buildBottomBar(ColorScheme cs, Color primary) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-      decoration: BoxDecoration(
-        color: cs.surface,
-        border: Border(
-            top: BorderSide(color: cs.outline.withValues(alpha: 0.15))),
-      ),
-      child: SafeArea(
-        top: false,
+  Widget _buildTotalsFooter() {
+    final primary = Theme.of(context).colorScheme.primary;
+    final cs = Theme.of(context).colorScheme;
+    final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5);
+
+    return GestureDetector(
+      onTap: () => setState(() => _footerExpanded = !_footerExpanded),
+      child: Container(
+        color: cs.surfaceContainerLow,
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _summaryRow(
-              'Sales Total',
-              'RM ${_amtFmt.format(_totalSalesAmt)}',
-              cs.onSurface.withValues(alpha: 0.6),
-              cs,
+            // Expanded detail rows
+            AnimatedSize(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeInOut,
+              child: _footerExpanded
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              'TOTAL SUMMARY',
+                              style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 1.1,
+                                  color: primary),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        FormTotalPriceSummaryRow(
+                          label: 'Sales Outstanding Total',
+                          value: _amtFmt.format(_selectedOrders.fold(0.0, (s, o) => s + o.sale.outstanding)),
+                          muted: muted),
+                        FormTotalPriceSummaryRow(
+                            label: 'Outstanding',
+                            value: _amtFmt.format(_totalOutstanding),
+                            muted: muted,
+                            valueColor: _totalOutstanding == 0
+                                ? muted
+                                : _totalOutstanding < 0
+                                    ? Mycolor.taxTextColor
+                                    : Mycolor.discountTextColor),
+                        
+                        Divider(height: 12, color: cs.outline.withValues(alpha: 0.2)),
+                      ],
+                    )
+                  : const SizedBox.shrink(),
             ),
-            const SizedBox(height: 3),
-            _summaryRow(
-              'Outstanding',
-              'RM ${_amtFmt.format(_totalOutstanding)}',
-              Colors.orange,
-              cs,
-            ),
-            const SizedBox(height: 3),
-            _summaryRow(
-              'Payment',
-              'RM ${_amtFmt.format(_totalPaymentAmt)}',
-              primary,
-              cs,
-              bold: true,
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: FilledButton(
-                onPressed: _isSaving ? null : _save,
-                child: _isSaving
-                    ? const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Text(
-                        'Save',
-                        style: TextStyle(
-                            fontSize: 15, fontWeight: FontWeight.w700),
-                      ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Sales Picker Page — full page multi-select
-// ─────────────────────────────────────────────────────────────────────
-
-class _SalesPickerPage extends StatefulWidget {
-  final String apiKey;
-  final String companyGUID;
-  final String userSessionID;
-  final int userID;
-  final int customerID;
-  final List<SalesListItem> initialSelected;
-
-  const _SalesPickerPage({
-    required this.apiKey,
-    required this.companyGUID,
-    required this.userSessionID,
-    required this.userID,
-    required this.customerID,
-    required this.initialSelected,
-  });
-
-  @override
-  State<_SalesPickerPage> createState() => _SalesPickerPageState();
-}
-
-class _SalesPickerPageState extends State<_SalesPickerPage> {
-  final _searchCtrl = TextEditingController();
-  Set<int> _selected = {};
-  List<SalesListItem> _sales = [];
-  bool _isLoading = false;
-  String? _error;
-
-  final _dateFmt = DateFormat('dd MMM yyyy');
-  final _amtFmt = NumberFormat('#,##0.00');
-
-  @override
-  void initState() {
-    super.initState();
-    _selected = widget.initialSelected.map((s) => s.docID).toSet();
-    _fetch();
-  }
-
-  @override
-  void dispose() {
-    _searchCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _fetch() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
-    try {
-      final response = await BaseClient.post(
-        ApiEndpoints.getSalesListForCollect,
-        body: {
-          'apiKey': widget.apiKey,
-          'companyGUID': widget.companyGUID,
-          'userID': widget.userID,
-          'userSessionID': widget.userSessionID,
-          'pageIndex': 0,
-          'pageSize': 200,
-          'sortBy': 'DocDate',
-          'isSortByAscending': false,
-          'searchTerm': _searchCtrl.text.trim().isEmpty
-              ? null
-              : _searchCtrl.text.trim(),
-          'customerID': widget.customerID,
-        },
-      );
-      final raw = response as Map<String, dynamic>;
-      final data = (raw['data'] as List<dynamic>?)
-              ?.map((e) => SalesListItem.fromJson(e as Map<String, dynamic>))
-              .toList() ??
-          [];
-      if (mounted) {
-        setState(() {
-          _sales = data;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _error = e.toString();
-        });
-      }
-    }
-  }
-
-  void _confirm() {
-    final result =
-        _sales.where((s) => _selected.contains(s.docID)).toList();
-    Navigator.pop(context, result);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final primary = cs.primary;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'Select Sales',
-          style: TextStyle(fontWeight: FontWeight.w600),
-        ),
-        centerTitle: true,
-        actions: [
-          if (_selected.isNotEmpty)
-            Container(
-              margin: const EdgeInsets.only(right: 12),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: primary.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Center(
-                child: Text(
-                  '${_selected.length} selected',
+            // Always-visible total row
+            Row(
+              children: [
+                Text(
+                  'Total',
                   style: TextStyle(
                       fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                      color: cs.onSurface.withValues(alpha: 0.55)),
+                ),
+                const Spacer(),
+                Text(
+                  '$_currency ${_amtFmt.format(double.tryParse(_paymentTotalCtrl.text) ?? 0)}',
+                  style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
                       color: primary),
                 ),
-              ),
-            ),
-        ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(60),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-            child: TextField(
-              controller: _searchCtrl,
-              textInputAction: TextInputAction.search,
-              onSubmitted: (_) => _fetch(),
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                hintText: 'Search sales...',
-                prefixIcon: const Icon(Icons.search, size: 20),
-                suffixIcon: _searchCtrl.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, size: 18),
-                        onPressed: () {
-                          _searchCtrl.clear();
-                          _fetch();
-                        })
-                    : null,
-                isDense: true,
-                contentPadding:
-                    const EdgeInsets.symmetric(vertical: 10),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
+                const SizedBox(width: 4),
+                Icon(
+                  _footerExpanded
+                      ? Icons.keyboard_arrow_down_rounded
+                      : Icons.keyboard_arrow_up_rounded,
+                  size: 18,
+                  color: cs.onSurface.withValues(alpha: 0.35),
                 ),
-                filled: true,
-              ),
-            ),
-          ),
-        ),
-      ),
-      body: _isLoading
-          ? const Center(child: DotsLoading())
-          : _error != null
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text('Error: $_error'),
-                      const SizedBox(height: 12),
-                      FilledButton(
-                          onPressed: _fetch, child: const Text('Retry')),
-                    ],
-                  ),
-                )
-              : _sales.isEmpty
-                  ? const Center(child: Text('No sales available'))
-                  : Column(
-                      children: [
-                        Expanded(
-                          child: ListView.builder(
-                            itemCount: _sales.length,
-                            itemBuilder: (ctx, i) {
-                              final sale = _sales[i];
-                              final isSelected =
-                                  _selected.contains(sale.docID);
-
-                              String formattedDate = sale.docDate;
-                              try {
-                                final parsed =
-                                    DateTime.parse(sale.docDate);
-                                formattedDate = _dateFmt.format(parsed);
-                              } catch (_) {}
-
-                              return CheckboxListTile(
-                                value: isSelected,
-                                onChanged: (v) {
-                                  setState(() {
-                                    if (v == true) {
-                                      _selected.add(sale.docID);
-                                    } else {
-                                      _selected.remove(sale.docID);
-                                    }
-                                  });
-                                },
-                                title: Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      sale.docNo,
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 14,
-                                          color: primary),
-                                    ),
-                                    Text(
-                                      formattedDate,
-                                      style: TextStyle(
-                                          fontSize: 12,
-                                          color: cs.onSurface
-                                              .withValues(alpha: 0.5)),
-                                    ),
-                                  ],
-                                ),
-                                subtitle: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                  children: [
-                                    if (sale.salesAgent != null &&
-                                        sale.salesAgent!.isNotEmpty)
-                                      Text(
-                                        sale.salesAgent!,
-                                        style: TextStyle(
-                                            fontSize: 12,
-                                            color: cs.onSurface
-                                                .withValues(alpha: 0.5)),
-                                      ),
-                                    const SizedBox(height: 2),
-                                    Row(
-                                      children: [
-                                        Text(
-                                          'Total: RM ${_amtFmt.format(sale.finalTotal)}',
-                                          style: TextStyle(
-                                              fontSize: 12,
-                                              color: cs.onSurface
-                                                  .withValues(alpha: 0.55)),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Text(
-                                          'O/S: RM ${_amtFmt.format(sale.outstanding)}',
-                                          style: const TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w600,
-                                              color: Colors.orange),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                                contentPadding:
-                                    const EdgeInsets.symmetric(
-                                        horizontal: 16, vertical: 4),
-                              );
-                            },
-                          ),
-                        ),
-                        Padding(
-                          padding:
-                              const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                          child: SafeArea(
-                            top: false,
-                            child: SizedBox(
-                              width: double.infinity,
-                              height: 48,
-                              child: FilledButton(
-                                onPressed:
-                                    _selected.isEmpty ? null : _confirm,
-                                child: Text(
-                                  'Confirm (${_selected.length} selected)',
-                                  style: const TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w700),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Customer Picker Bottom Sheet — infinite scroll with paginated search
-// ─────────────────────────────────────────────────────────────────────
-
-class _CustomerPickerSheet extends StatefulWidget {
-  final String apiKey;
-  final String companyGUID;
-  final int userID;
-  final String userSessionID;
-
-  const _CustomerPickerSheet({
-    required this.apiKey,
-    required this.companyGUID,
-    required this.userID,
-    required this.userSessionID,
-  });
-
-  @override
-  State<_CustomerPickerSheet> createState() => _CustomerPickerSheetState();
-}
-
-class _CustomerPickerSheetState extends State<_CustomerPickerSheet> {
-  final _searchCtrl = TextEditingController();
-  final _scrollCtrl = ScrollController();
-
-  List<Customer> _customers = [];
-  bool _isLoading = false;
-  bool _isLoadingMore = false;
-  String? _error;
-
-  int _currentPage = 0;
-  int _totalCount = 0;
-  bool _hasMore = true;
-  static const _pageSize = 20;
-
-  @override
-  void initState() {
-    super.initState();
-    _fetch(reset: true);
-    _scrollCtrl.addListener(_onScroll);
-  }
-
-  @override
-  void dispose() {
-    _searchCtrl.dispose();
-    _scrollCtrl.dispose();
-    super.dispose();
-  }
-
-  void _onScroll() {
-    if (_scrollCtrl.position.pixels >=
-        _scrollCtrl.position.maxScrollExtent - 200) {
-      if (!_isLoading && !_isLoadingMore && _hasMore) {
-        _fetch(reset: false);
-      }
-    }
-  }
-
-  Future<void> _fetch({required bool reset}) async {
-    if (!reset && (_isLoadingMore || !_hasMore)) return;
-    if (reset) {
-      setState(() {
-        _isLoading = true;
-        _error = null;
-        _currentPage = 0;
-        _hasMore = true;
-      });
-    } else {
-      setState(() => _isLoadingMore = true);
-    }
-
-    try {
-      final page = reset ? 0 : _currentPage + 1;
-      final response = await BaseClient.post(
-        ApiEndpoints.getCustomerList,
-        body: {
-          'apiKey': widget.apiKey,
-          'companyGUID': widget.companyGUID,
-          'userID': widget.userID,
-          'userSessionID': widget.userSessionID,
-          'pageIndex': page,
-          'pageSize': _pageSize,
-          'sortBy': 'CustomerCode',
-          'isSortByAscending': true,
-          'searchTerm': _searchCtrl.text.trim().isEmpty
-              ? null
-              : _searchCtrl.text.trim(),
-        },
-      );
-      final raw = response as Map<String, dynamic>;
-      final data = (raw['data'] as List<dynamic>?)
-              ?.map((e) => Customer.fromJson(e as Map<String, dynamic>))
-              .toList() ??
-          [];
-      final total =
-          (raw['paginationOpt']?['totalRecord'] as int?) ?? data.length;
-
-      if (mounted) {
-        setState(() {
-          if (reset) {
-            _customers = data;
-          } else {
-            _customers.addAll(data);
-          }
-          _currentPage = page;
-          _totalCount = total;
-          _hasMore = _customers.length < total;
-          _isLoading = false;
-          _isLoadingMore = false;
-        });
-        if (reset && _scrollCtrl.hasClients) {
-          _scrollCtrl.jumpTo(0);
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _isLoadingMore = false;
-          _error = e.toString();
-        });
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final primary = cs.primary;
-
-    return DraggableScrollableSheet(
-      initialChildSize: 0.85,
-      minChildSize: 0.5,
-      maxChildSize: 0.95,
-      expand: false,
-      builder: (_, __) => Material(
-        color: cs.surface,
-        borderRadius:
-            const BorderRadius.vertical(top: Radius.circular(20)),
-        child: Column(
-          children: [
-            const SizedBox(height: 12),
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: cs.onSurface.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              child: Row(
-                children: [
-                  const Text(
-                    'Select Customer',
-                    style: TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.w700),
-                  ),
-                  const Spacer(),
-                  Text(
-                    '$_totalCount customers',
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: cs.onSurface.withValues(alpha: 0.5)),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: TextField(
-                controller: _searchCtrl,
-                textInputAction: TextInputAction.search,
-                onSubmitted: (_) => _fetch(reset: true),
-                onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  hintText: 'Search customers...',
-                  prefixIcon: const Icon(Icons.search, size: 20),
-                  suffixIcon: _searchCtrl.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear, size: 18),
-                          onPressed: () {
-                            _searchCtrl.clear();
-                            _fetch(reset: true);
-                          })
-                      : null,
-                  isDense: true,
-                  contentPadding:
-                      const EdgeInsets.symmetric(vertical: 10),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  filled: true,
-                ),
-              ),
-            ),
-            const Divider(height: 1),
-            Expanded(
-              child: _isLoading
-                  ? const Center(child: DotsLoading())
-                  : _error != null
-                      ? Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text('Error: $_error'),
-                              const SizedBox(height: 12),
-                              FilledButton(
-                                onPressed: () => _fetch(reset: true),
-                                child: const Text('Retry'),
-                              ),
-                            ],
-                          ),
-                        )
-                      : _customers.isEmpty
-                          ? const Center(
-                              child: Text('No customers found'))
-                          : ListView.builder(
-                              controller: _scrollCtrl,
-                              itemCount: _customers.length +
-                                  (_isLoadingMore ? 1 : 0),
-                              itemBuilder: (ctx, i) {
-                                if (i == _customers.length) {
-                                  return const Padding(
-                                    padding: EdgeInsets.symmetric(
-                                        vertical: 16),
-                                    child: Center(
-                                        child:
-                                            DotsLoading(dotSize: 6)),
-                                  );
-                                }
-                                final c = _customers[i];
-                                return ListTile(
-                                  leading: CircleAvatar(
-                                    backgroundColor:
-                                        primary.withValues(alpha: 0.12),
-                                    child: Text(
-                                      c.name.isNotEmpty
-                                          ? c.name[0].toUpperCase()
-                                          : '?',
-                                      style: TextStyle(
-                                          color: primary,
-                                          fontWeight: FontWeight.w700),
-                                    ),
-                                  ),
-                                  title: Text(c.name,
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.w500)),
-                                  subtitle: Text(
-                                    c.customerCode,
-                                    style: TextStyle(
-                                        fontSize: 12, color: primary),
-                                  ),
-                                  trailing: Icon(
-                                    Icons.chevron_right,
-                                    size: 18,
-                                    color: cs.onSurface
-                                        .withValues(alpha: 0.3),
-                                  ),
-                                  contentPadding:
-                                      const EdgeInsets.symmetric(
-                                          horizontal: 16, vertical: 4),
-                                  onTap: () =>
-                                      Navigator.pop(context, c),
-                                );
-                              },
-                            ),
+              ],
             ),
           ],
         ),

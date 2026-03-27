@@ -1,4 +1,6 @@
 import 'package:cubehous/common/my_color.dart';
+import 'package:cubehous/view/Common/common_dialog.dart';
+import 'package:cubehous/view/Common/decoration.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
@@ -36,11 +38,11 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
   bool _pdfLoading = false;
   String? _error;
   String _imageMode = 'show';
-  Map<int, String?> _stockImages = {};
 
-  final _amtFmt = NumberFormat('#,##0.00');
-  final _qtyFmt = NumberFormat('#,##0.##');
-  final _dateFmt = DateFormat('dd MMM yyyy');
+  late String _currency = '';
+  late NumberFormat _amtFmt;
+  late NumberFormat _qtyFmt;
+  late DateFormat _dateFmt;
 
   @override
   void initState() {
@@ -63,6 +65,9 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
       SessionManager.getUserSessionID(),
       SessionManager.getUserAccessRight(),
       SessionManager.getImageMode(),
+      SessionManager.getSalesDecimalPoint(),
+      SessionManager.getQuantityDecimalPoint(),
+      SessionManager.getCurrencySymbol(),
     ]);
     _apiKey = results[0] as String;
     _companyGUID = results[1] as String;
@@ -70,53 +75,13 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
     _userSessionID = results[3] as String;
     _accessRights = results[4] as List<String>;
     _imageMode = results[5] as String;
+    final dp = results[6] as int;
+    _amtFmt = NumberFormat('#,##0.${'0' * dp}');
+    final dp2 = results[7] as int;
+    _qtyFmt = NumberFormat('#,##0.${'0' * dp2}');
+    _currency = results[8] as String;
     await _loadDoc();
-    if (_imageMode == 'show') _loadStockImages();
-  }
-
-  Future<void> _loadStockImages() async {
-    _apiKey = await SessionManager.getApiKey();
-    _companyGUID = await SessionManager.getCompanyGUID();
-    _userSessionID = await SessionManager.getUserSessionID();
-    if (_doc == null) return;
-    final ids = _doc!.quotationDetails.map((l) => l.stockID).toSet().toList();
-    if (ids.isEmpty) return;
-    final futures = ids.map((id) => BaseClient.post(
-          ApiEndpoints.getStock,
-          body: {
-            'apiKey': _apiKey,
-            'companyGUID': _companyGUID,
-            'userID': _userID,
-            'userSessionID': _userSessionID,
-            'stockID': id,
-          },
-        ));
-    final results = await Future.wait(futures, eagerError: false);
-    final images = <int, String?>{};
-    for (var i = 0; i < ids.length; i++) {
-      try {
-        images[ids[i]] = (results[i] as Map<String, dynamic>)['image'] as String?;
-      } catch (_) {
-        images[ids[i]] = null;
-      }
-    }
-    if (mounted) setState(() => _stockImages = images);
-  }
-
-  void _showNoAccessDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Access Denied'),
-        content: const Text('You do not have the access right to perform this action.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
+    if (_imageMode == 'show') _loadImages();
   }
 
   Future<void> _downloadPdf() async {
@@ -160,6 +125,82 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
     } finally {
       if (mounted) setState(() => _pdfLoading = false);
     }
+  }
+
+  Future<void> _deleteDoc() async {
+    if (!_accessRights.contains('QUOTATION_DELETE')){
+      CommonDialog.ShowNoAccessRightDialog(context);
+      return;
+    }
+    final confirmed = await CommonDialog.ConfirmDeleteDialog(context, _doc!.docNo, 'Quotation');
+    if (confirmed != true) return;
+
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
+
+    try {
+      await BaseClient.post(
+        ApiEndpoints.removeQuotation,
+        body: {
+          'apiKey': _apiKey,
+          'companyGUID': _companyGUID,
+          'userID': _userID,
+          'userSessionID': _userSessionID,
+          'docID': _doc!.docID,
+        },
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+          content: Text('Quotation deleted'),
+          behavior: SnackBarBehavior.floating,
+        ));
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+      final msg = e is BadRequestException ? e.message : 'Failed to delete: $e';
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(msg),
+          behavior: SnackBarBehavior.floating,
+        ));
+    }
+  }
+
+  Future<void> _loadImages() async {
+    if (_doc == null) return;
+    final lines = _doc!.quotationDetails;
+    if (lines.isEmpty) return;
+
+    final linesByStockId = <int, List<QuotationDetailLine>>{};
+    for (final line in lines) {
+      linesByStockId.putIfAbsent(line.stockID, () => []).add(line);
+    }
+
+    final ids = linesByStockId.keys.toList();
+    final futures = ids.map((id) => BaseClient.post(
+          ApiEndpoints.getStock,
+          body: {
+            'apiKey': _apiKey,
+            'companyGUID': _companyGUID,
+            'userID': _userID,
+            'userSessionID': _userSessionID,
+            'stockID': id,
+          },
+        ));
+    final results = await Future.wait(futures, eagerError: false);
+    for (var i = 0; i < ids.length; i++) {
+      try {
+        final img = (results[i] as Map<String, dynamic>)['image'] as String?;
+        for (final line in linesByStockId[ids[i]]!) {
+          line.image = img;
+        }
+      } catch (_) {}
+    }
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadDoc() async {
@@ -236,7 +277,7 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
                       switch (value) {
                         case 'edit':
                           if (!_accessRights.contains('QUOTATION_EDIT')) {
-                            _showNoAccessDialog();
+                            CommonDialog.ShowNoAccessRightDialog(context);
                             return;
                           }
                           final updated = await Navigator.push<bool>(
@@ -248,7 +289,7 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
                           if (updated == true && mounted) await _loadDoc();
                         case 'transfer':
                           if (!_accessRights.contains('QUOTATION_TRANSFERSALES')) {
-                            _showNoAccessDialog();
+                            CommonDialog.ShowNoAccessRightDialog(context);
                             return;
                           }
                           Navigator.push(
@@ -259,6 +300,12 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
                           );
                         case 'pdf':
                           _downloadPdf();
+                        case 'delete':
+                          if (!_accessRights.contains('QUOTATION_DELETE')) {
+                            CommonDialog.ShowNoAccessRightDialog(context);
+                            return;
+                          }
+                          _deleteDoc();
                       }
                     },
                     itemBuilder: (_) => [
@@ -286,6 +333,15 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
                         child: ListTile(
                           leading: Icon(Icons.picture_as_pdf_outlined),
                           title: Text('Download PDF'),
+                          contentPadding: EdgeInsets.zero,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'delete',
+                        child: ListTile(
+                          leading: Icon(Icons.delete_outline, color: Colors.red),
+                          title: Text('Delete', style: TextStyle(color: Colors.red)),
                           contentPadding: EdgeInsets.zero,
                           visualDensity: VisualDensity.compact,
                         ),
@@ -363,7 +419,7 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: primary)),
           const Spacer(),
           Text(
-            _amtFmt.format(doc.finalTotal),
+            '$_currency ${_amtFmt.format(doc.finalTotal)}',
             style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w800,
@@ -382,36 +438,34 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
       docDate = DateTime.parse(doc.docDate);
     } catch (_) {}
 
-    final primary = Theme.of(context).colorScheme.primary;
     final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5);
 
     return ListView(
       children: [
-        _SectionHeader(title: 'DOCUMENT'),
-        _DetailRow(label: 'Doc No', value: doc.docNo),
-        _DetailRow(
-            label: 'Date',
-            value: docDate != null ? _dateFmt.format(docDate) : doc.docDate),
-        _DetailRow(label: 'Sales Agent', value: doc.salesAgent!),
-        if ((doc.description ?? '').isNotEmpty)
-          _DetailRow(label: 'Description', value: doc.description!),
-        if ((doc.remark ?? '').isNotEmpty)
-          _DetailRow(label: 'Remark', value: doc.remark!),
-        _DetailRow(label: 'Shipping', value: doc.shippingMethodDescription!),
+        DetailSectionHeader(title: 'DOCUMENT'),
+        DetailDetailRow(label: 'Doc No', value: doc.docNo),
+        DetailDetailRow(label: 'Date', value: docDate != null ? _dateFmt.format(docDate) : doc.docDate),
+        DetailDetailRow(label: 'Sales Agent', value: doc.salesAgent ?? '-'),
+        DetailDetailRow(label: 'Description', value: doc.description ?? '-'),
+        DetailDetailRow(label: 'Remark', value: doc.remark ?? '-'),
+        DetailDetailRow(label: 'Shipping', value: doc.shippingMethodDescription!),
         SizedBox(height: 10),
-        _SectionHeader(title: 'CUSTOMER'),
-        _DetailRow(label: 'Code', value: doc.customerCode),
-        _DetailRow(label: 'Name', value: doc.customerName),
+        DetailSectionHeader(title: 'CUSTOMER'),
+        DetailDetailRow(label: 'Code', value: doc.customerCode),
+        DetailDetailRow(label: 'Name', value: doc.customerName),
         SizedBox(height: 10),
-        _SectionHeader(title: 'TOTAL'),
+        DetailSectionHeader(title: 'TOTAL'),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Column(
             children: [
-              _PriceSummaryRow(label: 'Subtotal', value: _amtFmt.format(doc.subtotal), muted: muted),
+              DetailTotalPriceSummaryRow(
+                label: 'Subtotal', 
+                value: _amtFmt.format(doc.subtotal), 
+                muted: muted),
               Builder(builder: (_) {
                 final discAmt = doc.quotationDetails.fold(0.0, (s, l) => s + l.qty * l.unitPrice * l.discount / 100);
-                return _PriceSummaryRow(
+                return DetailTotalPriceSummaryRow(
                   label: 'Discount',
                   value: '- ${_amtFmt.format(discAmt)}',
                   muted: muted,
@@ -419,25 +473,21 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
                 );
               }),
               if (doc.taxAmt != 0)
-                _PriceSummaryRow(
+                DetailTotalPriceSummaryRow(
                   label: 'Tax Amt', 
                   value: _amtFmt.format(doc.taxAmt), 
                   muted: muted,
                   valueColor: doc.taxAmt == 0 ? muted : Mycolor.taxTextColor),
               if (doc.taxableAmt != 0)
-                _PriceSummaryRow(label: 'Taxable Amt', value: _amtFmt.format(doc.taxableAmt), muted: muted, valueColor: muted),
+                DetailTotalPriceSummaryRow(label: 'Taxable Amt', value: _amtFmt.format(doc.taxableAmt), muted: muted, valueColor: muted),
               
-              const Divider(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Total Amt', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: primary)),
-                  Text(
-                    _amtFmt.format(doc.finalTotal),
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: primary),
-                  ),
-                ],
-              ),
+              const Divider(height: 5),
+              DetailTotalPriceSummaryRow(
+                  label: 'Total Amt ($_currency)', 
+                  value: _amtFmt.format(doc.finalTotal), 
+                  muted: muted,
+                  valueColor: doc.taxAmt == 0 ? muted : Mycolor.primary),
+  
             ],
           ),
         ),
@@ -490,7 +540,7 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
               amtFmt: _amtFmt,
               qtyFmt: _qtyFmt,
               primary: primary,
-              image: _stockImages[doc.quotationDetails[i].stockID],
+              image: doc.quotationDetails[i].image,
             ),
           )
         : ListView.builder(
@@ -499,7 +549,7 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
             itemBuilder: (_, i) => _ItemTile(
               index: i,
               line: doc.quotationDetails[i],
-              amtFmt: _amtFmt,
+              salesFmt: _amtFmt,
               qtyFmt: _qtyFmt,
             ),
           );
@@ -515,21 +565,21 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
 
     return ListView(
       children: [
-        _SectionHeader(title: 'CUSTOMER'),
-        _DetailRow(label: 'Code', value: doc.customerCode),
-        _DetailRow(label: 'Name', value: doc.customerName),
+        DetailSectionHeader(title: 'CUSTOMER'),
+        DetailDetailRow(label: 'Code', value: doc.customerCode),
+        DetailDetailRow(label: 'Name', value: doc.customerName),
         if (billingLines.isNotEmpty)
-          _AddressBlock(label: 'Billing Address', lines: billingLines),
+          DetailAddressRow(label: 'Billing Address', lines: billingLines),
         if (deliveryLines.isNotEmpty)
-          _AddressBlock(label: 'Delivery Address', lines: deliveryLines),
+          DetailAddressRow(label: 'Delivery Address', lines: deliveryLines),
         if ((doc.attention ?? '').isNotEmpty)
-          _DetailRow(label: 'Attention', value: doc.attention!),
+          DetailDetailRow(label: 'Attention', value: doc.attention!),
         if ((doc.phone ?? '').isNotEmpty)
-          _DetailRow(label: 'Phone', value: doc.phone!),
+          DetailDetailRow(label: 'Phone', value: doc.phone!),
         if ((doc.fax ?? '').isNotEmpty)
-          _DetailRow(label: 'Fax', value: doc.fax!),
+          DetailDetailRow(label: 'Fax', value: doc.fax!),
         if ((doc.email ?? '').isNotEmpty)
-          _DetailRow(label: 'Email', value: doc.email!),
+          DetailDetailRow(label: 'Email', value: doc.email!),
         const SizedBox(height: 16),
       ],
     );
@@ -581,13 +631,13 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
 class _ItemTile extends StatefulWidget {
   final int index;
   final QuotationDetailLine line;
-  final NumberFormat amtFmt;
+  final NumberFormat salesFmt;
   final NumberFormat qtyFmt;
 
   const _ItemTile({
     required this.index,
     required this.line,
-    required this.amtFmt,
+    required this.salesFmt,
     required this.qtyFmt,
   });
 
@@ -601,29 +651,13 @@ class _ItemTileState extends State<_ItemTile> {
   String _fmtNum(double v) =>
       v == v.truncateToDouble() ? v.toInt().toString() : v.toString();
 
-  Widget _breakdownRow(String label, String value, ColorScheme cs,
-      {Color? valueColor}) {
-    return Row(
-      children: [
-        Text(label,
-            style: TextStyle(
-                fontSize: 11, color: cs.onSurface.withValues(alpha: 0.5))),
-        const Spacer(),
-        Text(value,
-            style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: valueColor ?? cs.onSurface.withValues(alpha: 0.65))),
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final primary = cs.primary;
     final line = widget.line;
-    final fmt = widget.amtFmt;
+    final salesFmt = widget.salesFmt;
+    final qtyFmt = widget.qtyFmt;
     final discAmt = line.qty * line.unitPrice * line.discount / 100;
 
     final badge = Container(
@@ -655,7 +689,7 @@ class _ItemTileState extends State<_ItemTile> {
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               badge,
               const SizedBox(width: 10),
@@ -679,7 +713,7 @@ class _ItemTileState extends State<_ItemTile> {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          'x ${_fmtNum(line.qty)}',
+                          'x ${qtyFmt.format(line.qty)}',
                           style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w700,
@@ -743,7 +777,7 @@ class _ItemTileState extends State<_ItemTile> {
                         ],
                         const Spacer(),
                         Text(
-                          fmt.format(line.total),
+                          salesFmt.format(line.total + line.taxAmt),
                           style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w800,
@@ -758,25 +792,30 @@ class _ItemTileState extends State<_ItemTile> {
                           height: 1,
                           color: cs.outline.withValues(alpha: 0.2)),
                       const SizedBox(height: 8),
-                      _breakdownRow(
+                      BreakdownRow(
+                          'UnitPrice',
+                          salesFmt.format(line.unitPrice),
+                          cs),
+                      const SizedBox(height: 3),
+                      BreakdownRow(
                           'Subtotal',
-                          fmt.format(line.qty * line.unitPrice),
+                          salesFmt.format(line.qty * line.unitPrice),
                           cs),
                       if (discAmt > 0) ...[
                         const SizedBox(height: 3),
-                        _breakdownRow(
+                        BreakdownRow(
                             'Discount (${_fmtNum(line.discount)}%)',
-                            '- ${fmt.format(discAmt)}',
+                            '- ${salesFmt.format(discAmt)}',
                             cs,
-                            valueColor: Colors.orange),
+                            valueColor: Mycolor.discountTextColor),
                       ],
                       if ((line.taxCode ?? '').isNotEmpty) ...[
                         const SizedBox(height: 3),
-                        _breakdownRow(
-                            'Tax (${line.taxCode} ${_fmtNum(line.taxRate)}%)',
-                            '+ ${fmt.format(line.taxAmt)}',
+                        BreakdownRow(
+                            'Tax (${_fmtNum(line.taxRate)}%)',
+                            '+ ${salesFmt.format(line.taxAmt)}',
                             cs,
-                            valueColor: Colors.teal),
+                            valueColor: Mycolor.taxTextColor),
                       ],
                     ],
                   ],
@@ -785,140 +824,6 @@ class _ItemTileState extends State<_ItemTile> {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Reusable widgets
-// ─────────────────────────────────────────────────────────────────────
-
-class _PriceSummaryRow extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color muted;
-  final Color? valueColor;
-  const _PriceSummaryRow({required this.label, required this.value, required this.muted, this.valueColor});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: TextStyle(fontSize: 13, color: valueColor ?? muted)),
-          Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: valueColor)),
-        ],
-      ),
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  final String title;
-  const _SectionHeader({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
-      child: Text(
-        title,
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w700,
-          color: Theme.of(context).colorScheme.primary,
-          letterSpacing: 0.5,
-        ),
-      ),
-    );
-  }
-}
-
-class _DetailRow extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _DetailRow({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(
-            color: Theme.of(context)
-                .colorScheme
-                .outline
-                .withValues(alpha: 0.08),
-          ),
-        ),
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 100,
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.5),
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w500),
-              textAlign: TextAlign.right,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AddressBlock extends StatelessWidget {
-  final String label;
-  final List<String> lines;
-  const _AddressBlock({required this.label, required this.lines});
-
-  @override
-  Widget build(BuildContext context) {
-    final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5);
-    final borderColor = Theme.of(context).colorScheme.outline.withValues(alpha: 0.08);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: borderColor)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 100,
-            child: Text(label, style: TextStyle(fontSize: 13, color: muted)),
-          ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: lines
-                  .map((l) => Text(l,
-                      style: const TextStyle(
-                          fontSize: 13, fontWeight: FontWeight.w500),
-                      textAlign: TextAlign.right))
-                  .toList(),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -975,7 +880,8 @@ class _ItemGridCardState extends State<_ItemGridCard> {
     final cs = Theme.of(context).colorScheme;
     final primary = cs.primary;
     final line = widget.line;
-    final fmt = widget.amtFmt;
+    final salesFmt = widget.amtFmt;
+    final qtyFmt = widget.qtyFmt;
     final discAmt = line.qty * line.unitPrice * line.discount / 100;
 
     final image = ClipRRect(
@@ -1000,7 +906,7 @@ class _ItemGridCardState extends State<_ItemGridCard> {
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               image,
               const SizedBox(width: 10),
@@ -1024,7 +930,7 @@ class _ItemGridCardState extends State<_ItemGridCard> {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          'x ${_fmtNum(line.qty)}',
+                          'x ${qtyFmt.format(line.qty)}',
                           style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w700,
@@ -1088,7 +994,7 @@ class _ItemGridCardState extends State<_ItemGridCard> {
                         ],
                         const Spacer(),
                         Text(
-                          fmt.format(line.total),
+                          salesFmt.format(line.total + line.taxAmt),
                           style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w800,
@@ -1104,22 +1010,27 @@ class _ItemGridCardState extends State<_ItemGridCard> {
                           color: cs.outline.withValues(alpha: 0.2)),
                       const SizedBox(height: 8),
                       _breakdownRow(
+                          'UnitPrice',
+                          salesFmt.format(line.unitPrice),
+                          cs),
+                      const SizedBox(height: 3),
+                      _breakdownRow(
                           'Subtotal',
-                          fmt.format(line.qty * line.unitPrice),
+                          salesFmt.format(line.qty * line.unitPrice),
                           cs),
                       if (discAmt > 0) ...[
                         const SizedBox(height: 3),
                         _breakdownRow(
                             'Discount (${_fmtNum(line.discount)}%)',
-                            '- ${fmt.format(discAmt)}',
+                            '- ${salesFmt.format(discAmt)}',
                             cs,
                             valueColor: Colors.orange),
                       ],
                       if ((line.taxCode ?? '').isNotEmpty) ...[
                         const SizedBox(height: 3),
                         _breakdownRow(
-                            'Tax (${line.taxCode} ${_fmtNum(line.taxRate)}%)',
-                            '+ ${fmt.format(line.taxAmt)}',
+                            'Tax (${_fmtNum(line.taxRate)}%)',
+                            '+ ${salesFmt.format(line.taxAmt)}',
                             cs,
                             valueColor: Colors.teal),
                       ],

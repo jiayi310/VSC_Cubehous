@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'api/base_client.dart';
 import 'common/dots_loading.dart';
+import 'common/network_aware_wrapper.dart';
 import 'common/session_manager.dart';
 import 'login_company.dart';
 import 'models/my_company_selection.dart';
@@ -38,6 +39,10 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       vsync: this,
     )..repeat();
     _loadSavedCredentials();
+    // Trigger first network check now that login page is visible
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => NetworkAwareWrapper.checkNow(),
+    );
   }
 
   Future<void> _loadSavedCredentials() async {

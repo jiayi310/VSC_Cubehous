@@ -82,6 +82,14 @@ class ApiEndpoints {
   static const String removePurchase = '/Purchase/RemovePurchase';
   static const String getPurchaseReport = '/Report/GetPurchaseReport';
 
+  // ── Receiving ───────────────────────────────────
+  static const String getReceivingList = '/Receiving/GetReceivingListByCompanyId';
+  static const String getReceiving = '/Receiving/GetReceiving';
+  static const String createReceiving = '/Receiving/CreateReceiving';
+  static const String removeReceiving = '/Receiving/RemoveReceiving';
+  static const String getReceivingReport = '/Report/GetReceivingReport';
+  static const String getReceivingPurchaseList = '/Purchase/GetReceivingPurchaseList';
+
   // ── Sales Agent ─────────────────────────────────
   static const String getSalesAgentList = '/SalesAgent/GetSalesAgentList';
 

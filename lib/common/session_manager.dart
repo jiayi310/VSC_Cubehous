@@ -53,6 +53,8 @@ class SessionManager {
       _storage.write(key: 'defaultLocationID', value: defaultLocationID?.toString() ?? ''),
       _storage.write(key: 'defaultSalesAgentID', value: defaultSalesAgentID?.toString() ?? ''),
       _storage.write(key: 'userIsActive', value: userIsActive.toString()),
+      _storage.write(key: 'currencySymbol', value: 'RM'),
+      _storage.write(key: 'dateFormat', value: 'dd/MM/yyyy'),
     ]);
   }
 
@@ -136,6 +138,11 @@ class SessionManager {
   static Future<void> saveProfileImage(String url) =>
       _storage.write(key: 'profileImage', value: url);
 
+  static Future<String> getCurrencySymbol() async =>
+      await _storage.read(key: 'currencySymbol') ?? '';
+
+  static Future<String> getDateFormat() async =>
+      await _storage.read(key: 'dateFormat') ?? '';
 
   // ── Remember Me ───────────────────────────────
 
@@ -233,6 +240,8 @@ class SessionManager {
       _storage.write(key: 'isEnableTax', value: isEnableTax.toString()),
       _storage.write(key: 'defaultLocationID', value: defaultLocationID?.toString() ?? ''),
       _storage.write(key: 'defaultSalesAgentID', value: defaultSalesAgentID?.toString() ?? ''),
+      _storage.write(key: 'currencySymbol', value: 'RM'),
+      _storage.write(key: 'dateFormat', value: 'dd/MM/yyyy'),
     ]);
   }
 
@@ -285,6 +294,38 @@ class SessionManager {
 
   static Future<bool> hasQuotationDraft() async {
     final v = await _storage.read(key: 'quotation_draft');
+    return v != null && v.isNotEmpty;
+  }
+
+  // ── Stock Take Draft ──────────────────────────────────────
+
+  static Future<void> saveStockTakeDraft(String jsonStr) =>
+      _storage.write(key: 'stock_take_draft', value: jsonStr);
+
+  static Future<String?> getStockTakeDraft() =>
+      _storage.read(key: 'stock_take_draft');
+
+  static Future<void> clearStockTakeDraft() =>
+      _storage.delete(key: 'stock_take_draft');
+
+  static Future<bool> hasStockTakeDraft() async {
+    final v = await _storage.read(key: 'stock_take_draft');
+    return v != null && v.isNotEmpty;
+  }
+
+  // ── Collection Draft ──────────────────────────────────────
+
+  static Future<void> saveCollectionDraft(String jsonStr) =>
+      _storage.write(key: 'collection_draft', value: jsonStr);
+
+  static Future<String?> getCollectionDraft() =>
+      _storage.read(key: 'collection_draft');
+
+  static Future<void> clearCollectionDraft() =>
+      _storage.delete(key: 'collection_draft');
+
+  static Future<bool> hasCollectionDraft() async {
+    final v = await _storage.read(key: 'collection_draft');
     return v != null && v.isNotEmpty;
   }
 }

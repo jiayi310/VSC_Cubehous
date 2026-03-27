@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../api/api_endpoints.dart';
 import '../../api/base_client.dart';
+import '../../common/date_pill.dart';
 import '../../common/dots_loading.dart';
 import '../../common/session_manager.dart';
 import '../../models/customer.dart';
@@ -305,7 +306,7 @@ class _CustomerHistoryPageState extends State<CustomerHistoryPage> {
               child: Row(
                 children: [
                   Expanded(
-                    child: _DatePill(
+                    child: DatePill(
                       label: 'From',
                       date: _dateFmt.format(_fromDate),
                       onTap: _pickFromDate,
@@ -314,7 +315,7 @@ class _CustomerHistoryPageState extends State<CustomerHistoryPage> {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: _DatePill(
+                    child: DatePill(
                       label: 'To',
                       date: _dateFmt.format(_toDate),
                       onTap: _pickToDate,
@@ -586,60 +587,6 @@ class _PillChip extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────
 // Date Pill
 // ─────────────────────────────────────────────────────────────────────
-
-class _DatePill extends StatelessWidget {
-  final String label;
-  final String date;
-  final VoidCallback onTap;
-  final Color primary;
-
-  const _DatePill({
-    required this.label,
-    required this.date,
-    required this.onTap,
-    required this.primary,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: primary.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: primary.withValues(alpha: 0.6),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                date,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: primary,
-                ),
-              ),
-            ),
-            Icon(Icons.expand_more_rounded,
-                size: 16, color: primary.withValues(alpha: 0.6)),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 // ─────────────────────────────────────────────────────────────────────
 // Customer picker sheet

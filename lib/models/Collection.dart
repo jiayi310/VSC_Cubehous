@@ -17,7 +17,6 @@ class CollectionListItem {
   final String? paymentType;
   final String? refNo;
   final double paymentTotal;
-  final bool isVoid;
 
   const CollectionListItem({
     required this.docID,
@@ -30,7 +29,6 @@ class CollectionListItem {
     this.paymentType,
     this.refNo,
     required this.paymentTotal,
-    required this.isVoid,
   });
 
   factory CollectionListItem.fromJson(Map<String, dynamic> json) =>
@@ -45,7 +43,6 @@ class CollectionListItem {
         paymentType: json['paymentType'] as String?,
         refNo: json['refNo'] as String?,
         paymentTotal: _toD(json['paymentTotal']),
-        isVoid: (json['isVoid'] as bool?) ?? false,
       );
 }
 
@@ -102,7 +99,6 @@ class CollectionDoc {
   final String? paymentType;
   final String? refNo;
   final double paymentTotal;
-  final bool isVoid;
   final String? address1;
   final String? address2;
   final String? address3;
@@ -121,7 +117,6 @@ class CollectionDoc {
     this.paymentType,
     this.refNo,
     required this.paymentTotal,
-    required this.isVoid,
     this.address1,
     this.address2,
     this.address3,
@@ -141,7 +136,6 @@ class CollectionDoc {
         paymentType: json['paymentType'] as String?,
         refNo: json['refNo'] as String?,
         paymentTotal: _toD(json['paymentTotal']),
-        isVoid: (json['isVoid'] as bool?) ?? false,
         address1: json['address1'] as String?,
         address2: json['address2'] as String?,
         address3: json['address3'] as String?,

@@ -3,7 +3,10 @@ import 'package:intl/intl.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import '../../api/api_endpoints.dart';
 import '../../api/base_client.dart';
+import '../../common/date_pill.dart';
+import '../../common/direction_chip.dart';
 import '../../common/dots_loading.dart';
+import '../../common/pagination_bar.dart';
 import '../../common/session_manager.dart';
 import '../../models/purchase_order.dart';
 import 'purchase_detail.dart';
@@ -401,7 +404,7 @@ class _PurchaseListPageState extends State<PurchaseListPage> {
                 child: Row(
                   children: [
                     Expanded(
-                        child: _DatePill(
+                        child: DatePill(
                       label: 'From',
                       date: _dateFmt.format(_fromDate),
                       onTap: _pickFromDate,
@@ -409,7 +412,7 @@ class _PurchaseListPageState extends State<PurchaseListPage> {
                     )),
                     const SizedBox(width: 8),
                     Expanded(
-                        child: _DatePill(
+                        child: DatePill(
                       label: 'To',
                       date: _dateFmt.format(_toDate),
                       onTap: _pickToDate,
@@ -545,7 +548,7 @@ class _PurchaseListPageState extends State<PurchaseListPage> {
           Expanded(child: _buildEmpty())
         else
           Expanded(child: _buildList(start: start, end: end)),
-        _PaginationBar(
+        PaginationBar(
           currentPage: _currentPage,
           totalPages: _totalPages,
           isLoading: _isLoading,
@@ -709,65 +712,6 @@ class _PurchaseListPageState extends State<PurchaseListPage> {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Date pill
-// ─────────────────────────────────────────────────────────────────────
-
-class _DatePill extends StatelessWidget {
-  final String label;
-  final String date;
-  final VoidCallback onTap;
-  final Color primary;
-
-  const _DatePill({
-    required this.label,
-    required this.date,
-    required this.onTap,
-    required this.primary,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: primary.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: primary.withValues(alpha: 0.6),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                date,
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: primary,
-                ),
-              ),
-            ),
-            Icon(Icons.expand_more_rounded,
-                size: 16, color: primary.withValues(alpha: 0.6)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────
 // Purchase tile
 // ─────────────────────────────────────────────────────────────────────
 
@@ -911,77 +855,6 @@ class _PurchaseTile extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// Pagination bar
-// ─────────────────────────────────────────────────────────────────────
-
-class _PaginationBar extends StatelessWidget {
-  final int currentPage;
-  final int totalPages;
-  final bool isLoading;
-  final Color primary;
-  final VoidCallback? onPrev;
-  final VoidCallback? onNext;
-
-  const _PaginationBar({
-    required this.currentPage,
-    required this.totalPages,
-    required this.isLoading,
-    required this.primary,
-    required this.onPrev,
-    required this.onNext,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(
-            color: Theme.of(context)
-                .colorScheme
-                .outline
-                .withValues(alpha: 0.15),
-          ),
-        ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.chevron_left),
-            onPressed: isLoading ? null : onPrev,
-            style: IconButton.styleFrom(
-              foregroundColor: onPrev != null ? primary : null,
-            ),
-          ),
-          const SizedBox(width: 8),
-          if (isLoading)
-            const DotsLoading(dotSize: 6)
-          else
-            Text(
-              'Page ${currentPage + 1} of $totalPages',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: primary,
-              ),
-            ),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.chevron_right),
-            onPressed: isLoading ? null : onNext,
-            style: IconButton.styleFrom(
-              foregroundColor: onNext != null ? primary : null,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _VoidBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -1099,7 +972,7 @@ class _SortSheetState extends State<_SortSheet> {
                           color: primary)),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
-                    initialValue: _sortBy,
+                    value: _sortBy,
                     decoration: InputDecoration(
                       border: OutlineInputBorder(
                           borderRadius:
@@ -1126,7 +999,7 @@ class _SortSheetState extends State<_SortSheet> {
                   Row(
                     children: [
                       Expanded(
-                        child: _DirectionChip(
+                        child: DirectionChip(
                           label: 'Ascending',
                           icon: Icons.arrow_upward_rounded,
                           selected: _sortAsc,
@@ -1136,7 +1009,7 @@ class _SortSheetState extends State<_SortSheet> {
                       ),
                       const SizedBox(width: 10),
                       Expanded(
-                        child: _DirectionChip(
+                        child: DirectionChip(
                           label: 'Descending',
                           icon: Icons.arrow_downward_rounded,
                           selected: !_sortAsc,
@@ -1169,60 +1042,6 @@ class _SortSheetState extends State<_SortSheet> {
                 ],
               ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _DirectionChip extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _DirectionChip({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(
-          color: selected
-              ? primary.withValues(alpha: 0.1)
-              : Colors.transparent,
-          border: Border.all(
-              color: selected
-                  ? primary
-                  : Theme.of(context)
-                      .colorScheme
-                      .outline
-                      .withValues(alpha: 0.4)),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon,
-                size: 16, color: selected ? primary : null),
-            const SizedBox(width: 6),
-            Text(label,
-                style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: selected
-                        ? FontWeight.w600
-                        : FontWeight.normal,
-                    color: selected ? primary : null)),
           ],
         ),
       ),

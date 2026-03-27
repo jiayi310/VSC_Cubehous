@@ -8,6 +8,7 @@ import '../../common/session_manager.dart';
 import '../../models/customer.dart';
 import '../../models/tax_type.dart';
 import '../../models/quotation.dart';
+import '../Common/decoration.dart';
 
 class SalesFormPage extends StatefulWidget {
   final QuotationDoc? fromQuotation;
@@ -430,7 +431,7 @@ class _SalesFormPageState extends State<SalesFormPage> {
                         TextFormField(
                           controller: _salesAgentCtrl,
                           style: const TextStyle(fontSize: 14),
-                          decoration: _inputDeco('Sales Agent'),
+                          decoration: formInputDeco(context, label: 'Sales Agent'),
                         ),
 
                         // ── Reference card ───────────────────────────────
@@ -440,14 +441,14 @@ class _SalesFormPageState extends State<SalesFormPage> {
                           controller: _qtDocNoCtrl,
                           style: const TextStyle(fontSize: 14),
                           decoration:
-                              _inputDeco('Quotation Ref No.'),
+                              formInputDeco(context, label: 'Quotation Ref No.'),
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
                           controller: _shippingCtrl,
                           style: const TextStyle(fontSize: 14),
                           decoration:
-                              _inputDeco('Shipping Method'),
+                              formInputDeco(context, label: 'Shipping Method'),
                         ),
 
                         // ── Line items ───────────────────────────────────
@@ -484,14 +485,14 @@ class _SalesFormPageState extends State<SalesFormPage> {
                           controller: _descriptionCtrl,
                           maxLines: 2,
                           style: const TextStyle(fontSize: 14),
-                          decoration: _inputDeco('Description'),
+                          decoration: formInputDeco(context, label: 'Description'),
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
                           controller: _remarkCtrl,
                           maxLines: 2,
                           style: const TextStyle(fontSize: 14),
-                          decoration: _inputDeco('Remark'),
+                          decoration: formInputDeco(context, label: 'Remark'),
                         ),
                         const SizedBox(height: 24),
                       ],
@@ -507,7 +508,7 @@ class _SalesFormPageState extends State<SalesFormPage> {
                     child: FilledButton(
                       onPressed: _isSaving ? null : _save,
                       child: const Text(
-                        'Create Sales Order',
+                        'Save',
                         style: TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w700),
@@ -588,24 +589,6 @@ class _SalesFormPageState extends State<SalesFormPage> {
     );
   }
 
-  InputDecoration _inputDeco(String label) {
-    return InputDecoration(
-      labelText: label,
-      filled: true,
-      isDense: true,
-      border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none),
-      enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(
-            color: Theme.of(context).colorScheme.primary, width: 1.5),
-      ),
-    );
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -899,7 +882,7 @@ class _LineItemCardState extends State<_LineItemCard> {
     required ValueChanged<T?> onChanged,
   }) {
     return DropdownButtonFormField<T>(
-      initialValue: value,
+      value: value,
       isExpanded: true,
       style: const TextStyle(fontSize: 13),
       decoration: InputDecoration(
