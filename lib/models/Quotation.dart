@@ -112,7 +112,6 @@ class QuotationDetailLine {
         taxAmt: _toD(json['taxAmt']),
         locationID: json['locationID'] as int?,
         location: json['location'] as String?,
-        image: json['image'] as String?,
       );
 }
 

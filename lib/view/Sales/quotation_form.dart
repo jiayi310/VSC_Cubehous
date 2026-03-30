@@ -682,14 +682,14 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
       useSafeArea: true,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-      builder: (ctx) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.85,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        builder: (_, sc) => Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+      builder: (ctx) => Padding(
+        padding: MediaQuery.viewInsetsOf(ctx),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(ctx).height * 0.85,
+          ),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -726,41 +726,39 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
               ),
               const Divider(height: 1),
               Expanded(
-                child: ListView(
-                  controller: sc,
+                child: SingleChildScrollView(
                   padding: const EdgeInsets.all(16),
-                  children: [
-                    SheetSection(label: 'Billing Address'),
-                    SheetField(ctrl: a1, hint: 'Address line 1'),
-                    SheetField(ctrl: a2, hint: 'Address line 2'),
-                    SheetField(ctrl: a3, hint: 'Address line 3'),
-                    SheetField(ctrl: a4, hint: 'Address line 4'),
-                    const SizedBox(height: 16),
-                    SheetSection(label: 'Delivery Address'),
-                    SheetField(ctrl: d1, hint: 'Address line 1'),
-                    SheetField(ctrl: d2, hint: 'Address line 2'),
-                    SheetField(ctrl: d3, hint: 'Address line 3'),
-                    SheetField(ctrl: d4, hint: 'Address line 4'),
-                    const SizedBox(height: 16),
-                    SheetSection(label: 'Contact'),
-                    SheetField(ctrl: na, hint: 'Name'),
-                    SheetField(ctrl: att, hint: 'Attention'),
-                    SheetField(ctrl: em, hint: 'Email', inputType: TextInputType.emailAddress),
-                    SheetField(ctrl: ph, hint: 'Phone', inputType: TextInputType.phone),
-                    SheetField(ctrl: fx, hint: 'Fax', inputType: TextInputType.phone),
-                  ],
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SheetSection(label: 'Billing Address'),
+                      SheetField(ctrl: a1, hint: 'Address line 1'),
+                      SheetField(ctrl: a2, hint: 'Address line 2'),
+                      SheetField(ctrl: a3, hint: 'Address line 3'),
+                      SheetField(ctrl: a4, hint: 'Address line 4'),
+                      const SizedBox(height: 16),
+                      SheetSection(label: 'Delivery Address'),
+                      SheetField(ctrl: d1, hint: 'Address line 1'),
+                      SheetField(ctrl: d2, hint: 'Address line 2'),
+                      SheetField(ctrl: d3, hint: 'Address line 3'),
+                      SheetField(ctrl: d4, hint: 'Address line 4'),
+                      const SizedBox(height: 16),
+                      SheetSection(label: 'Contact'),
+                      SheetField(ctrl: na, hint: 'Name'),
+                      SheetField(ctrl: att, hint: 'Attention'),
+                      SheetField(ctrl: em, hint: 'Email', inputType: TextInputType.emailAddress),
+                      SheetField(ctrl: ph, hint: 'Phone', inputType: TextInputType.phone),
+                      SheetField(ctrl: fx, hint: 'Fax', inputType: TextInputType.phone),
+                    ],
+                  ),
                 ),
               ),
-              SizedBox(height: 50),
             ],
           ),
         ),
       ),
     );
 
-    for (final c in [a1, a2, a3, a4, d1, d2, d3, d4, att, ph, fx, em, na]) {
-      c.dispose();
-    }
   }
 
   Future<void> _pickSalesAgent() async {

@@ -328,4 +328,20 @@ class SessionManager {
     final v = await _storage.read(key: 'collection_draft');
     return v != null && v.isNotEmpty;
   }
+
+  // ── Sales Draft ──────────────────────────────────────
+
+  static Future<void> saveSalesDraft(String jsonStr) =>
+      _storage.write(key: 'sales_draft', value: jsonStr);
+
+  static Future<String?> getSalesDraft() =>
+      _storage.read(key: 'sales_draft');
+
+  static Future<void> clearSalesDraft() =>
+      _storage.delete(key: 'sales_draft');
+
+  static Future<bool> hasSalesDraft() async {
+    final v = await _storage.read(key: 'sales_draft');
+    return v != null && v.isNotEmpty;
+  }
 }

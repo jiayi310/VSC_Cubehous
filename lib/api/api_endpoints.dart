@@ -31,6 +31,8 @@ class ApiEndpoints {
   static const String getSalesListForCollect = '/Sales/GetSalesListAvailableForCollect';
   static const String getSales = '/Sales/GetSales';
   static const String createSales = '/Sales/CreateSales';
+  static const String updateSales = '/Sales/UpdateSales';
+  static const String removeSales = '/Sales/RemoveSales';
 
   // ── Tax Type ───────────────────────────────────
   static const String getTaxList = '/TaxType/GeTaxListByCompanyId';

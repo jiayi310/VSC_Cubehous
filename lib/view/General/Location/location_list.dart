@@ -267,16 +267,7 @@ class _LocationTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
     final name = location.location ?? '';
-
-    // Build a single-line address string
-    final addressParts = [
-      location.address1,
-      location.address2,
-      location.address3,
-      location.address4,
-    ].where((p) => p != null && p.isNotEmpty).join(', ');
 
     return InkWell(
       onTap: onTap,

@@ -1,9 +1,12 @@
+import 'package:cubehous/common/my_color.dart';
+import 'package:cubehous/view/Common/common_dialog.dart';
+import 'package:cubehous/view/Common/decoration.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'dart:convert';
 import '../../api/api_endpoints.dart';
 import '../../api/base_client.dart';
 import '../../common/dots_loading.dart';
-import '../../common/status_badge.dart';
 import '../../common/session_manager.dart';
 import '../../models/sales.dart';
 
@@ -23,14 +26,17 @@ class _SalesDetailPageState extends State<SalesDetailPage>
   String _companyGUID = '';
   int _userID = 0;
   String _userSessionID = '';
+  List<String> _accessRights = [];
 
   SalesDoc? _doc;
   bool _loading = true;
   String? _error;
+  String _imageMode = 'show';
 
-  final _amtFmt = NumberFormat('#,##0.00');
-  final _qtyFmt = NumberFormat('#,##0.##');
-  final _dateFmt = DateFormat('dd MMM yyyy');
+  late String _currency = '';
+  late NumberFormat _amtFmt;
+  late NumberFormat _qtyFmt;
+  final DateFormat _dateFmt = DateFormat('dd MMM yyyy');
 
   @override
   void initState() {
@@ -46,11 +52,106 @@ class _SalesDetailPageState extends State<SalesDetailPage>
   }
 
   Future<void> _init() async {
+    final results = await Future.wait([
+      SessionManager.getApiKey(),
+      SessionManager.getCompanyGUID(),
+      SessionManager.getUserID(),
+      SessionManager.getUserSessionID(),
+      SessionManager.getUserAccessRight(),
+      SessionManager.getImageMode(),
+      SessionManager.getSalesDecimalPoint(),
+      SessionManager.getQuantityDecimalPoint(),
+      SessionManager.getCurrencySymbol(),
+    ]);
+    _apiKey = results[0] as String;
+    _companyGUID = results[1] as String;
+    _userID = results[2] as int;
+    _userSessionID = results[3] as String;
+    _accessRights = results[4] as List<String>;
+    _imageMode = results[5] as String;
+    final dp = results[6] as int;
+    _amtFmt = NumberFormat('#,##0.${'0' * dp}');
+    final dp2 = results[7] as int;
+    _qtyFmt = NumberFormat('#,##0.${'0' * dp2}');
+    _currency = results[8] as String;
+    await _loadDoc();
+    if (_imageMode == 'show') _loadImages();
+  }
+
+  Future<void> _deleteDoc() async {
+    if (!_accessRights.contains('SALES_DELETE')) {
+      CommonDialog.ShowNoAccessRightDialog(context);
+      return;
+    }
+    final confirmed = await CommonDialog.ConfirmDeleteDialog(context, _doc!.docNo, 'Sales Order');
+    if (confirmed != true) return;
+
     _apiKey = await SessionManager.getApiKey();
     _companyGUID = await SessionManager.getCompanyGUID();
-    _userID = await SessionManager.getUserID();
     _userSessionID = await SessionManager.getUserSessionID();
-    await _loadDoc();
+
+    try {
+      await BaseClient.post(
+        ApiEndpoints.removeSales,
+        body: {
+          'apiKey': _apiKey,
+          'companyGUID': _companyGUID,
+          'userID': _userID,
+          'userSessionID': _userSessionID,
+          'docID': _doc!.docID,
+        },
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+          content: Text('Sales order deleted'),
+          behavior: SnackBarBehavior.floating,
+        ));
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+      final msg = e is BadRequestException ? e.message : 'Failed to delete: $e';
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(msg),
+          behavior: SnackBarBehavior.floating,
+        ));
+    }
+  }
+
+  Future<void> _loadImages() async {
+    if (_doc == null) return;
+    final lines = _doc!.salesDetails;
+    if (lines.isEmpty) return;
+
+    final linesByStockId = <int, List<SalesDetailLine>>{};
+    for (final line in lines) {
+      linesByStockId.putIfAbsent(line.stockID, () => []).add(line);
+    }
+
+    final ids = linesByStockId.keys.toList();
+    final futures = ids.map((id) => BaseClient.post(
+          ApiEndpoints.getStock,
+          body: {
+            'apiKey': _apiKey,
+            'companyGUID': _companyGUID,
+            'userID': _userID,
+            'userSessionID': _userSessionID,
+            'stockID': id,
+          },
+        ));
+    final results = await Future.wait(futures, eagerError: false);
+    for (var i = 0; i < ids.length; i++) {
+      try {
+        final img = (results[i] as Map<String, dynamic>)['image'] as String?;
+        for (final line in linesByStockId[ids[i]]!) {
+          line.image = img;
+        }
+      } catch (_) {}
+    }
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadDoc() async {
@@ -96,11 +197,10 @@ class _SalesDetailPageState extends State<SalesDetailPage>
         actions: [
           if (_doc != null && _doc!.isVoid)
             Padding(
-              padding: const EdgeInsets.only(right: 12),
+              padding: const EdgeInsets.only(right: 4),
               child: Center(
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
                     color: Colors.red.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(6),
@@ -117,6 +217,30 @@ class _SalesDetailPageState extends State<SalesDetailPage>
                 ),
               ),
             ),
+          if (_doc != null)
+            PopupMenuButton<String>(
+              onSelected: (value) async {
+                switch (value) {
+                  case 'delete':
+                    if (!_accessRights.contains('SALES_DELETE')) {
+                      CommonDialog.ShowNoAccessRightDialog(context);
+                      return;
+                    }
+                    _deleteDoc();
+                }
+              },
+              itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: ListTile(
+                    leading: Icon(Icons.delete_outline, color: Colors.red),
+                    title: Text('Delete', style: TextStyle(color: Colors.red)),
+                    contentPadding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+              ],
+            ),
         ],
         bottom: _loading || _error != null
             ? null
@@ -125,17 +249,17 @@ class _SalesDetailPageState extends State<SalesDetailPage>
                 tabs: const [
                   Tab(
                     icon: Icon(Icons.info_outline, size: 18),
-                    text: 'Details',
+                    text: 'Info',
+                    iconMargin: EdgeInsets.only(bottom: 2),
+                  ),
+                  Tab(
+                    icon: Icon(Icons.person_outline, size: 18),
+                    text: 'Customer',
                     iconMargin: EdgeInsets.only(bottom: 2),
                   ),
                   Tab(
                     icon: Icon(Icons.list_alt_outlined, size: 18),
                     text: 'Items',
-                    iconMargin: EdgeInsets.only(bottom: 2),
-                  ),
-                  Tab(
-                    icon: Icon(Icons.location_on_outlined, size: 18),
-                    text: 'Address',
                     iconMargin: EdgeInsets.only(bottom: 2),
                   ),
                 ],
@@ -146,8 +270,8 @@ class _SalesDetailPageState extends State<SalesDetailPage>
                     .withValues(alpha: 0.35),
                 indicatorColor: Theme.of(context).colorScheme.primary,
                 indicatorWeight: 2.5,
-                labelStyle:
-                    const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                labelStyle: const TextStyle(
+                    fontSize: 11, fontWeight: FontWeight.w600),
                 unselectedLabelStyle: const TextStyle(fontSize: 11),
               ),
       ),
@@ -163,9 +287,9 @@ class _SalesDetailPageState extends State<SalesDetailPage>
                       child: TabBarView(
                         controller: _tabController,
                         children: [
-                          _buildDetailsTab(_doc!),
+                          _buildInfoTab(_doc!),
+                          _buildCustomerTab(_doc!),
                           _buildItemsTab(_doc!),
-                          _buildAddressTab(_doc!),
                         ],
                       ),
                     ),
@@ -174,12 +298,11 @@ class _SalesDetailPageState extends State<SalesDetailPage>
     );
   }
 
-  // ── Totals bar ───────────────────────────────────────────────────────
+  // ── Totals summary bar ───────────────────────────────────────────────
 
   Widget _buildTotalsBar(SalesDoc doc) {
     final primary = Theme.of(context).colorScheme.primary;
     final cs = Theme.of(context).colorScheme;
-
     return Container(
       color: cs.surfaceContainerLow,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -188,47 +311,32 @@ class _SalesDetailPageState extends State<SalesDetailPage>
         children: [
           Row(
             children: [
-              _TotalChip(
-                  label: 'Subtotal',
-                  value: 'RM ${_amtFmt.format(doc.subtotal)}',
-                  primary: primary),
-              const SizedBox(width: 12),
-              _TotalChip(
-                  label: 'Tax',
-                  value: 'RM ${_amtFmt.format(doc.taxAmt)}',
-                  primary: primary),
+              Text('Total Amt',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: primary)),
               const Spacer(),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  const Text('Total',
-                      style: TextStyle(
-                          fontSize: 11, fontWeight: FontWeight.w500)),
-                  Text(
-                    'RM ${_amtFmt.format(doc.finalTotal)}',
-                    style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        color: primary),
-                  ),
-                ],
+              Text(
+                '$_currency ${_amtFmt.format(doc.finalTotal)}',
+                style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: primary),
               ),
             ],
           ),
           if (doc.outstanding > 0) ...[
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Paid: RM ${_amtFmt.format(doc.paymentTotal)}',
+                  'Paid: $_currency ${_amtFmt.format(doc.paymentTotal)}',
                   style: TextStyle(
                       fontSize: 12,
                       color: cs.onSurface.withValues(alpha: 0.6),
                       fontWeight: FontWeight.w500),
                 ),
                 Text(
-                  'Outstanding: RM ${_amtFmt.format(doc.outstanding)}',
+                  'Outstanding: $_currency ${_amtFmt.format(doc.outstanding)}',
                   style: const TextStyle(
                       fontSize: 12,
                       color: Colors.orange,
@@ -242,84 +350,113 @@ class _SalesDetailPageState extends State<SalesDetailPage>
     );
   }
 
-  // ── Details tab ──────────────────────────────────────────────────────
+  // ── Info tab ──────────────────────────────────────────────────────
 
-  Widget _buildDetailsTab(SalesDoc doc) {
+  Widget _buildInfoTab(SalesDoc doc) {
     DateTime? docDate;
     try {
       docDate = DateTime.parse(doc.docDate);
     } catch (_) {}
 
+    final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5);
+
     return ListView(
       children: [
-        _SectionHeader(title: 'DOCUMENT'),
-        _InfoRow(
-            icon: Icons.tag_outlined,
-            label: 'Doc No',
-            value: doc.docNo),
-        _InfoRow(
-            icon: Icons.calendar_today_outlined,
-            label: 'Doc Date',
-            value: docDate != null ? _dateFmt.format(docDate) : doc.docDate),
-        if ((doc.description ?? '').isNotEmpty)
-          _InfoRow(
-              icon: Icons.notes_outlined,
-              label: 'Description',
-              value: doc.description!),
-        if ((doc.remark ?? '').isNotEmpty)
-          _InfoRow(
-              icon: Icons.comment_outlined,
-              label: 'Remark',
-              value: doc.remark!),
+        DetailSectionHeader(title: 'DOCUMENT'),
+        DetailDetailRow(label: 'Doc No', value: doc.docNo),
+        DetailDetailRow(label: 'Date', value: docDate != null ? _dateFmt.format(docDate) : doc.docDate),
+        DetailDetailRow(label: 'Sales Agent', value: doc.salesAgent ?? '-'),
+        DetailDetailRow(label: 'Description', value: doc.description ?? '-'),
+        DetailDetailRow(label: 'Remark', value: doc.remark ?? '-'),
         if ((doc.qtDocNo ?? '').isNotEmpty)
-          _InfoRow(
-              icon: Icons.receipt_long_outlined,
-              label: 'Quotation Ref',
-              value: doc.qtDocNo!),
+          DetailDetailRow(label: 'Quotation Ref', value: doc.qtDocNo!),
         if ((doc.shippingMethodDescription ?? '').isNotEmpty)
-          _InfoRow(
-              icon: Icons.local_shipping_outlined,
-              label: 'Shipping',
-              value: doc.shippingMethodDescription!),
-        if (doc.isPicking || doc.isPacking) ...[
+          DetailDetailRow(label: 'Shipping', value: doc.shippingMethodDescription!),
+        if (doc.isPicking || doc.isPacking)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
             child: Row(
               children: [
                 if (doc.isPicking)
-                  StatusBadge(label: 'Picking', color: Colors.blue),
+                  _StatusChip(label: 'Picking', color: Colors.blue),
                 if (doc.isPicking && doc.isPacking)
                   const SizedBox(width: 8),
                 if (doc.isPacking)
-                  StatusBadge(label: 'Packing', color: Colors.purple),
+                  _StatusChip(label: 'Packing', color: Colors.purple),
               ],
             ),
           ),
-        ],
-        _SectionHeader(title: 'CUSTOMER'),
-        _InfoRow(
-            icon: Icons.badge_outlined,
-            label: 'Customer Code',
-            value: doc.customerCode),
-        _InfoRow(
-            icon: Icons.person_outline,
-            label: 'Customer Name',
-            value: doc.customerName),
-        if ((doc.salesAgent ?? '').isNotEmpty)
-          _InfoRow(
-              icon: Icons.support_agent_outlined,
-              label: 'Sales Agent',
-              value: doc.salesAgent!),
+        const SizedBox(height: 10),
+        DetailSectionHeader(title: 'TOTAL'),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Column(
+            children: [
+              DetailTotalPriceSummaryRow(
+                label: 'Subtotal',
+                value: _amtFmt.format(doc.subtotal),
+                muted: muted),
+              Builder(builder: (_) {
+                final discAmt = doc.salesDetails.fold(0.0, (s, l) => s + l.qty * l.unitPrice * l.discount / 100);
+                return DetailTotalPriceSummaryRow(
+                  label: 'Discount',
+                  value: '- ${_amtFmt.format(discAmt)}',
+                  muted: muted,
+                  valueColor: discAmt == 0 ? muted : Mycolor.discountTextColor,
+                );
+              }),
+              if (doc.taxAmt != 0)
+                DetailTotalPriceSummaryRow(
+                  label: 'Tax Amt',
+                  value: _amtFmt.format(doc.taxAmt),
+                  muted: muted,
+                  valueColor: doc.taxAmt == 0 ? muted : Mycolor.taxTextColor),
+              if (doc.taxableAmt != 0)
+                DetailTotalPriceSummaryRow(
+                  label: 'Taxable Amt',
+                  value: _amtFmt.format(doc.taxableAmt),
+                  muted: muted,
+                  valueColor: muted),
+              const Divider(height: 5),
+              DetailTotalPriceSummaryRow(
+                label: 'Total Amt ($_currency)',
+                value: _amtFmt.format(doc.finalTotal),
+                muted: muted,
+                valueColor: doc.taxAmt == 0 ? muted : Mycolor.primary),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
+  // ── Customer tab ──────────────────────────────────────────────────────
+
+  Widget _buildCustomerTab(SalesDoc doc) {
+    final billingLines = [doc.address1, doc.address2, doc.address3, doc.address4]
+        .where((l) => (l ?? '').isNotEmpty).cast<String>().toList();
+    final deliveryLines = [doc.deliverAddr1, doc.deliverAddr2, doc.deliverAddr3, doc.deliverAddr4]
+        .where((l) => (l ?? '').isNotEmpty).cast<String>().toList();
+
+    return ListView(
+      children: [
+        DetailSectionHeader(title: 'CUSTOMER'),
+        DetailDetailRow(label: 'Code', value: doc.customerCode),
+        DetailDetailRow(label: 'Name', value: doc.customerName),
+        if (billingLines.isNotEmpty)
+          DetailAddressRow(label: 'Billing Address', lines: billingLines),
+        if (deliveryLines.isNotEmpty)
+          DetailAddressRow(label: 'Delivery Address', lines: deliveryLines),
+        if ((doc.attention ?? '').isNotEmpty)
+          DetailDetailRow(label: 'Attention', value: doc.attention!),
         if ((doc.phone ?? '').isNotEmpty)
-          _InfoRow(
-              icon: Icons.phone_outlined,
-              label: 'Phone',
-              value: doc.phone!),
+          DetailDetailRow(label: 'Phone', value: doc.phone!),
+        if ((doc.fax ?? '').isNotEmpty)
+          DetailDetailRow(label: 'Fax', value: doc.fax!),
         if ((doc.email ?? '').isNotEmpty)
-          _InfoRow(
-              icon: Icons.email_outlined,
-              label: 'Email',
-              value: doc.email!),
+          DetailDetailRow(label: 'Email', value: doc.email!),
+        const SizedBox(height: 16),
       ],
     );
   }
@@ -357,64 +494,30 @@ class _SalesDetailPageState extends State<SalesDetailPage>
       );
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.only(bottom: 16),
-      itemCount: doc.salesDetails.length,
-      separatorBuilder: (_, __) => Divider(
-        height: 1,
-        color:
-            Theme.of(context).colorScheme.outline.withValues(alpha: 0.08),
-      ),
-      itemBuilder: (context, i) => _ItemTile(
-          line: doc.salesDetails[i],
-          amtFmt: _amtFmt,
-          qtyFmt: _qtyFmt),
-    );
-  }
-
-  // ── Address tab ──────────────────────────────────────────────────────
-
-  Widget _buildAddressTab(SalesDoc doc) {
-    final billingLines = [
-      doc.address1,
-      doc.address2,
-      doc.address3,
-      doc.address4,
-    ].where((l) => (l ?? '').isNotEmpty).cast<String>().toList();
-
-    final deliveryLines = [
-      doc.deliverAddr1,
-      doc.deliverAddr2,
-      doc.deliverAddr3,
-      doc.deliverAddr4,
-    ].where((l) => (l ?? '').isNotEmpty).cast<String>().toList();
-
-    return ListView(
-      children: [
-        _SectionHeader(title: 'BILLING ADDRESS'),
-        if (billingLines.isNotEmpty)
-          _AddressBlock(
-            lines: billingLines,
-            phone: doc.phone,
-            fax: doc.fax,
-            email: doc.email,
-            attention: doc.attention,
+    final primary = Theme.of(context).colorScheme.primary;
+    return _imageMode == 'show'
+        ? ListView.separated(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+            itemCount: doc.salesDetails.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 10),
+            itemBuilder: (_, i) => _ItemGridCard(
+              line: doc.salesDetails[i],
+              amtFmt: _amtFmt,
+              qtyFmt: _qtyFmt,
+              primary: primary,
+              image: doc.salesDetails[i].image,
+            ),
           )
-        else
-          _EmptyAddressHint(label: 'No billing address'),
-        _SectionHeader(title: 'DELIVERY ADDRESS'),
-        if (deliveryLines.isNotEmpty)
-          _AddressBlock(
-            lines: deliveryLines,
-            phone: null,
-            fax: null,
-            email: null,
-            attention: null,
-          )
-        else
-          _EmptyAddressHint(label: 'No delivery address'),
-      ],
-    );
+        : ListView.builder(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+            itemCount: doc.salesDetails.length,
+            itemBuilder: (_, i) => _ItemTile(
+              index: i,
+              line: doc.salesDetails[i],
+              salesFmt: _amtFmt,
+              qtyFmt: _qtyFmt,
+            ),
+          );
   }
 
   Widget _buildError() {
@@ -432,8 +535,7 @@ class _SalesDetailPageState extends State<SalesDetailPage>
                     .withValues(alpha: 0.6)),
             const SizedBox(height: 14),
             const Text('Failed to load sales order',
-                style:
-                    TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             Text(_error ?? '',
                 textAlign: TextAlign.center,
@@ -457,302 +559,474 @@ class _SalesDetailPageState extends State<SalesDetailPage>
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Item tile
+// Item tile (no image mode)
 // ─────────────────────────────────────────────────────────────────────
 
-class _ItemTile extends StatelessWidget {
+class _ItemTile extends StatefulWidget {
+  final int index;
   final SalesDetailLine line;
-  final NumberFormat amtFmt;
+  final NumberFormat salesFmt;
   final NumberFormat qtyFmt;
 
-  const _ItemTile(
-      {required this.line, required this.amtFmt, required this.qtyFmt});
+  const _ItemTile({
+    required this.index,
+    required this.line,
+    required this.salesFmt,
+    required this.qtyFmt,
+  });
+
+  @override
+  State<_ItemTile> createState() => _ItemTileState();
+}
+
+class _ItemTileState extends State<_ItemTile> {
+  bool _expanded = false;
+
+  String _fmtNum(double v) =>
+      v == v.truncateToDouble() ? v.toInt().toString() : v.toString();
 
   @override
   Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    final muted =
-        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45);
+    final cs = Theme.of(context).colorScheme;
+    final primary = cs.primary;
+    final line = widget.line;
+    final salesFmt = widget.salesFmt;
+    final qtyFmt = widget.qtyFmt;
+    final discAmt = line.qty * line.unitPrice * line.discount / 100;
+
+    final badge = Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: primary.withValues(alpha: 0.1),
+        shape: BoxShape.circle,
+      ),
+      child: Center(
+        child: Text(
+          '${widget.index + 1}',
+          style: TextStyle(
+              fontSize: 13, fontWeight: FontWeight.w700, color: primary),
+        ),
+      ),
+    );
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: GestureDetector(
+        onTap: () => setState(() => _expanded = !_expanded),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          decoration: BoxDecoration(
+            color: (Theme.of(context).cardTheme.color ?? cs.surface)
+                .withValues(alpha: 0.5),
+            border: Border.all(color: cs.outline.withValues(alpha: 0.18)),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              badge,
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      line.stockCode,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: primary,
-                        letterSpacing: 0.2,
-                      ),
+                    // Row 1: stock code | qty
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            line.stockCode,
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: primary),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'x ${qtyFmt.format(line.qty)}',
+                          style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: primary),
+                        ),
+                      ],
                     ),
+                    // Row 2: description
                     const SizedBox(height: 2),
                     Text(
                       line.description,
-                      style: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.w500),
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: cs.onSurface.withValues(alpha: 0.65)),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
+                    const SizedBox(height: 4),
+                    // Row 3: UOM + badges | total
+                    Row(
+                      children: [
+                        Text(line.uom,
+                            style: TextStyle(
+                                fontSize: 11,
+                                color: cs.onSurface.withValues(alpha: 0.5))),
+                        if (line.discount > 0) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 5, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              '-${_fmtNum(line.discount)}%',
+                              style: const TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.orange,
+                                  fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                        if ((line.taxCode ?? '').isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 5, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: Colors.teal.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              line.taxCode!,
+                              style: const TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.teal,
+                                  fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                        const Spacer(),
+                        Text(
+                          salesFmt.format(line.total + line.taxAmt),
+                          style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: primary),
+                        ),
+                      ],
+                    ),
+                    // Expandable breakdown
+                    if (_expanded) ...[
+                      const SizedBox(height: 8),
+                      Divider(
+                          height: 1,
+                          color: cs.outline.withValues(alpha: 0.2)),
+                      const SizedBox(height: 8),
+                      BreakdownRow(
+                          'UnitPrice',
+                          salesFmt.format(line.unitPrice),
+                          cs),
+                      const SizedBox(height: 3),
+                      BreakdownRow(
+                          'Subtotal',
+                          salesFmt.format(line.qty * line.unitPrice),
+                          cs),
+                      if (discAmt > 0) ...[
+                        const SizedBox(height: 3),
+                        BreakdownRow(
+                            'Discount (${_fmtNum(line.discount)}%)',
+                            '- ${salesFmt.format(discAmt)}',
+                            cs,
+                            valueColor: Mycolor.discountTextColor),
+                      ],
+                      if ((line.taxCode ?? '').isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        BreakdownRow(
+                            'Tax (${_fmtNum(line.taxRate)}%)',
+                            '+ ${salesFmt.format(line.taxAmt)}',
+                            cs,
+                            valueColor: Mycolor.taxTextColor),
+                      ],
+                    ],
                   ],
                 ),
               ),
-              const SizedBox(width: 16),
-              Text(
-                'RM ${amtFmt.format(line.total)}',
-                style: const TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w700),
-              ),
             ],
           ),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 6,
-            runSpacing: 4,
-            children: [
-              _Chip(
-                  label:
-                      '${qtyFmt.format(line.qty)} ${line.uom}'),
-              _Chip(
-                  label:
-                      'RM ${amtFmt.format(line.unitPrice)}/unit'),
-              if (line.discount > 0)
-                _Chip(
-                    label:
-                        '${qtyFmt.format(line.discount)}% disc',
-                    color: Colors.orange),
-              if ((line.taxCode ?? '').isNotEmpty)
-                _Chip(label: line.taxCode!, color: Colors.teal),
-              if ((line.location ?? '').isNotEmpty)
-                _Chip(
-                    label: line.location!,
-                    color: muted),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Chip extends StatelessWidget {
-  final String label;
-  final Color? color;
-  const _Chip({required this.label, this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    final c = color ?? Theme.of(context).colorScheme.primary;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-      decoration: BoxDecoration(
-        color: c.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-            fontSize: 11, fontWeight: FontWeight.w600, color: c),
+        ),
       ),
     );
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Reusable widgets
+// Item grid card (shown when image mode = show)
 // ─────────────────────────────────────────────────────────────────────
 
-class _TotalChip extends StatelessWidget {
-  final String label;
-  final String value;
+class _ItemGridCard extends StatefulWidget {
+  final SalesDetailLine line;
+  final NumberFormat amtFmt;
+  final NumberFormat qtyFmt;
   final Color primary;
-  const _TotalChip(
-      {required this.label, required this.value, required this.primary});
+  final String? image;
 
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label,
-            style: TextStyle(
-                fontSize: 10,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.5))),
-        Text(value,
-            style:
-                const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-      ],
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  final String title;
-  const _SectionHeader({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
-      child: Text(
-        title,
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          color: Theme.of(context).colorScheme.primary,
-          letterSpacing: 0.5,
-        ),
-      ),
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _InfoRow(
-      {required this.icon, required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    final muted =
-        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(
-            color: Theme.of(context)
-                .colorScheme
-                .outline
-                .withValues(alpha: 0.08),
-          ),
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 16, color: muted),
-          const SizedBox(width: 10),
-          SizedBox(
-            width: 110,
-            child: Text(
-              label,
-              style: TextStyle(fontSize: 12, color: muted),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w500),
-              textAlign: TextAlign.right,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AddressBlock extends StatelessWidget {
-  final List<String> lines;
-  final String? phone;
-  final String? fax;
-  final String? email;
-  final String? attention;
-
-  const _AddressBlock({
-    required this.lines,
-    required this.phone,
-    required this.fax,
-    required this.email,
-    required this.attention,
+  const _ItemGridCard({
+    required this.line,
+    required this.amtFmt,
+    required this.qtyFmt,
+    required this.primary,
+    this.image,
   });
 
   @override
+  State<_ItemGridCard> createState() => _ItemGridCardState();
+}
+
+class _ItemGridCardState extends State<_ItemGridCard> {
+  bool _expanded = false;
+
+  String _fmtNum(double v) =>
+      v == v.truncateToDouble() ? v.toInt().toString() : v.toString();
+
+  Widget _breakdownRow(String label, String value, ColorScheme cs,
+      {Color? valueColor}) {
+    return Row(
+      children: [
+        Text(label,
+            style: TextStyle(
+                fontSize: 11, color: cs.onSurface.withValues(alpha: 0.5))),
+        const Spacer(),
+        Text(value,
+            style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: valueColor ?? cs.onSurface.withValues(alpha: 0.65))),
+      ],
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final muted =
-        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5);
+    final cs = Theme.of(context).colorScheme;
+    final primary = cs.primary;
+    final line = widget.line;
+    final salesFmt = widget.amtFmt;
+    final qtyFmt = widget.qtyFmt;
+    final discAmt = line.qty * line.unitPrice * line.discount / 100;
+
+    final image = ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: SizedBox(
+        width: 50,
+        height: 50,
+        child: _ItemImage(base64: widget.image),
+      ),
+    );
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ...lines.map((l) => Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: Text(l,
-                    style: const TextStyle(
-                        fontSize: 14, fontWeight: FontWeight.w400)),
-              )),
-          if ((attention ?? '').isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Row(children: [
-              Icon(Icons.person_outline, size: 13, color: muted),
-              const SizedBox(width: 4),
-              Text(attention!,
-                  style: TextStyle(fontSize: 13, color: muted)),
-            ]),
-          ],
-          if ((phone ?? '').isNotEmpty) ...[
-            const SizedBox(height: 2),
-            Row(children: [
-              Icon(Icons.phone_outlined, size: 13, color: muted),
-              const SizedBox(width: 4),
-              Text(phone!,
-                  style: TextStyle(fontSize: 13, color: muted)),
-            ]),
-          ],
-          if ((fax ?? '').isNotEmpty) ...[
-            const SizedBox(height: 2),
-            Row(children: [
-              Icon(Icons.fax_outlined, size: 13, color: muted),
-              const SizedBox(width: 4),
-              Text(fax!, style: TextStyle(fontSize: 13, color: muted)),
-            ]),
-          ],
-          if ((email ?? '').isNotEmpty) ...[
-            const SizedBox(height: 2),
-            Row(children: [
-              Icon(Icons.email_outlined, size: 13, color: muted),
-              const SizedBox(width: 4),
-              Text(email!,
-                  style: TextStyle(fontSize: 13, color: muted)),
-            ]),
-          ],
-        ],
+      padding: const EdgeInsets.only(bottom: 10),
+      child: GestureDetector(
+        onTap: () => setState(() => _expanded = !_expanded),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          decoration: BoxDecoration(
+            color: (Theme.of(context).cardTheme.color ?? cs.surface)
+                .withValues(alpha: 0.5),
+            border: Border.all(color: cs.outline.withValues(alpha: 0.18)),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              image,
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Row 1: stock code | qty
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            line.stockCode,
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: primary),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'x ${qtyFmt.format(line.qty)}',
+                          style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: primary),
+                        ),
+                      ],
+                    ),
+                    // Row 2: description
+                    const SizedBox(height: 2),
+                    Text(
+                      line.description,
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: cs.onSurface.withValues(alpha: 0.65)),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    // Row 3: UOM + badges | total
+                    Row(
+                      children: [
+                        Text(line.uom,
+                            style: TextStyle(
+                                fontSize: 11,
+                                color: cs.onSurface.withValues(alpha: 0.5))),
+                        if (line.discount > 0) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 5, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              '-${_fmtNum(line.discount)}%',
+                              style: const TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.orange,
+                                  fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                        if ((line.taxCode ?? '').isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 5, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: Colors.teal.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              line.taxCode!,
+                              style: const TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.teal,
+                                  fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                        const Spacer(),
+                        Text(
+                          salesFmt.format(line.total + line.taxAmt),
+                          style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: primary),
+                        ),
+                      ],
+                    ),
+                    // Expandable breakdown
+                    if (_expanded) ...[
+                      const SizedBox(height: 8),
+                      Divider(
+                          height: 1,
+                          color: cs.outline.withValues(alpha: 0.2)),
+                      const SizedBox(height: 8),
+                      _breakdownRow(
+                          'UnitPrice',
+                          salesFmt.format(line.unitPrice),
+                          cs),
+                      const SizedBox(height: 3),
+                      _breakdownRow(
+                          'Subtotal',
+                          salesFmt.format(line.qty * line.unitPrice),
+                          cs),
+                      if (discAmt > 0) ...[
+                        const SizedBox(height: 3),
+                        _breakdownRow(
+                            'Discount (${_fmtNum(line.discount)}%)',
+                            '- ${salesFmt.format(discAmt)}',
+                            cs,
+                            valueColor: Colors.orange),
+                      ],
+                      if ((line.taxCode ?? '').isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        _breakdownRow(
+                            'Tax (${_fmtNum(line.taxRate)}%)',
+                            '+ ${salesFmt.format(line.taxAmt)}',
+                            cs,
+                            valueColor: Colors.teal),
+                      ],
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 }
 
-class _EmptyAddressHint extends StatelessWidget {
-  final String label;
-  const _EmptyAddressHint({required this.label});
+class _ItemImage extends StatelessWidget {
+  final String? base64;
+  const _ItemImage({this.base64});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+    if (base64 != null && base64!.isNotEmpty) {
+      try {
+        final raw = base64!.contains(',') ? base64!.split(',').last : base64!;
+        final bytes = base64Decode(raw);
+        return Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true);
+      } catch (_) {}
+    }
+    return Container(
+      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
+      child: Center(
+        child: Icon(
+          Icons.inventory_2_outlined,
+          size: 32,
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Picking/Packing status chip
+// ─────────────────────────────────────────────────────────────────────
+
+class _StatusChip extends StatelessWidget {
+  final String label;
+  final Color color;
+  const _StatusChip({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+      ),
       child: Text(
         label,
         style: TextStyle(
-            fontSize: 13,
-            color: Theme.of(context)
-                .colorScheme
-                .onSurface
-                .withValues(alpha: 0.35)),
+            fontSize: 11, fontWeight: FontWeight.w700, color: color),
       ),
     );
   }

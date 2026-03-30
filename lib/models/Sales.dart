@@ -63,6 +63,7 @@ class SalesListItem {
 class SalesDetailLine {
   final int dtlID;
   final int docID;
+  final int stockID;
   final String stockCode;
   final String description;
   final String uom;
@@ -70,15 +71,19 @@ class SalesDetailLine {
   final double unitPrice;
   final double discount;
   final double total;
+  final int? taxTypeID;
   final String? taxCode;
   final double taxableAmt;
   final double taxRate;
   final double taxAmt;
+  final int? locationID;
   final String? location;
+  String? image;
 
-  const SalesDetailLine({
+  SalesDetailLine({
     required this.dtlID,
     required this.docID,
+    required this.stockID,
     required this.stockCode,
     required this.description,
     required this.uom,
@@ -86,17 +91,21 @@ class SalesDetailLine {
     required this.unitPrice,
     required this.discount,
     required this.total,
+    this.taxTypeID,
     this.taxCode,
     required this.taxableAmt,
     required this.taxRate,
     required this.taxAmt,
+    this.locationID,
     this.location,
+    this.image,
   });
 
   factory SalesDetailLine.fromJson(Map<String, dynamic> json) =>
       SalesDetailLine(
         dtlID: (json['dtlID'] as int?) ?? 0,
         docID: (json['docID'] as int?) ?? 0,
+        stockID: (json['stockID'] as int?) ?? 0,
         stockCode: (json['stockCode'] as String?) ?? '',
         description: (json['description'] as String?) ?? '',
         uom: (json['uom'] as String?) ?? '',
@@ -104,10 +113,12 @@ class SalesDetailLine {
         unitPrice: _toD(json['unitPrice']),
         discount: _toD(json['discount']),
         total: _toD(json['total']),
+        taxTypeID: json['taxTypeID'] as int?,        
         taxCode: json['taxCode'] as String?,
         taxableAmt: _toD(json['taxableAmt']),
         taxRate: _toD(json['taxRate']),
         taxAmt: _toD(json['taxAmt']),
+        locationID: json['locationID'] as int?,
         location: json['location'] as String?,
       );
 }
@@ -141,6 +152,7 @@ class SalesDoc {
   final String? email;
   final String? attention;
   final double taxableAmt;
+  final int? shippingMethodID;
   final String? shippingMethodDescription;
   final String? qtDocNo;
   final bool isPicking;
@@ -177,6 +189,7 @@ class SalesDoc {
     this.email,
     this.attention,
     required this.taxableAmt,
+    this.shippingMethodID,
     this.shippingMethodDescription,
     this.qtDocNo,
     required this.isPicking,
@@ -214,6 +227,7 @@ class SalesDoc {
         email: json['email'] as String?,
         attention: json['attention'] as String?,
         taxableAmt: _toD(json['taxableAmt']),
+        shippingMethodID: (json['shippingMethodID'] as int?) ?? 0,
         shippingMethodDescription:
             json['shippingMethodDescription'] as String?,
         qtDocNo: json['qtDocNo'] as String?,

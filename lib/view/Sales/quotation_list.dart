@@ -43,6 +43,7 @@ class _QuotationListPageState extends State<QuotationListPage> {
 
   // Data
   List<QuotationListItem> _quotations = [];
+  bool _isInitialized = false;
   bool _isLoading = false;
   bool _hasDraft = false;
   String? _error;
@@ -56,8 +57,9 @@ class _QuotationListPageState extends State<QuotationListPage> {
   // Date filter
   DateTime _fromDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
   DateTime _toDate = DateTime.now();
-  final _dateFmt = DateFormat('dd/MM/yyyy');
+  late DateFormat _dateFmt;
   late NumberFormat _amtFmt;
+  late String _currency;
 
   final _scrollController = ScrollController();
 
@@ -85,6 +87,8 @@ class _QuotationListPageState extends State<QuotationListPage> {
       SessionManager.getUserAccessRight(),
       SessionManager.getItemsPerPage(),
       SessionManager.getSalesDecimalPoint(),
+      SessionManager.getDateFormat(),
+      SessionManager.getCurrencySymbol(),
     ]);
     _apiKey = results[0] as String;
     _companyGUID = results[1] as String;
@@ -94,10 +98,14 @@ class _QuotationListPageState extends State<QuotationListPage> {
     _itemsPerPage = results[5] as int;
     final dp = results[6] as int;
     _amtFmt = NumberFormat('#,##0.${'0' * dp}');
+    final de = results[7] as String;
+    _dateFmt = DateFormat(de);
+    _currency = results[8] as String;
     await Future.wait([
       _fetchQuotations(page: 0),
       _refreshDraftFlag(),
     ]);
+    if (mounted) setState(() => _isInitialized = true);
   }
 
   Future<void> _refreshDraftFlag() async {
@@ -247,6 +255,9 @@ class _QuotationListPageState extends State<QuotationListPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_isInitialized) {
+      return const Scaffold(body: Center(child: DotsLoading()));
+    }
     final primary = Theme.of(context).colorScheme.primary;
     return Scaffold(
       appBar: AppBar(
@@ -562,6 +573,7 @@ class _QuotationListPageState extends State<QuotationListPage> {
               quotation: item,
               amtFmt: _amtFmt,
               dateFmt: _dateFmt,
+              currency: _currency,
               onTap: () async {
                 final result = await Navigator.push<bool>(
                   context,
@@ -658,12 +670,14 @@ class _QuotationTile extends StatelessWidget {
   final QuotationListItem quotation;
   final NumberFormat amtFmt;
   final DateFormat dateFmt;
+  final String currency;
   final VoidCallback onTap;
 
   const _QuotationTile({
     required this.quotation,
     required this.amtFmt,
     required this.dateFmt,
+    required this.currency,
     required this.onTap,
   });
 
@@ -763,7 +777,7 @@ class _QuotationTile extends StatelessWidget {
                       ] else
                         const Spacer(),
                       Text(
-                        'RM ${amtFmt.format(quotation.finalTotal)}',
+                        '$currency ${amtFmt.format(quotation.finalTotal)}',
                         style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
                       ),
                     ],

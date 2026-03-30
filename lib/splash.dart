@@ -282,11 +282,16 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _tryAutoLogin(String email, String password) async {
     try {
-      final isValid = await BaseClient.get(
+      final isValidInt = await BaseClient.get(
         '/User/ValidateMobileRemember'
         '?email=${Uri.encodeComponent(email)}'
         '&password=${Uri.encodeComponent(password)}',
-      ) as bool;
+      ) as int;
+
+      bool isValid = false;
+      if (isValidInt == 1){
+        isValid = true;
+      }
 
       if (!isValid || !mounted) {
         if (mounted) Navigator.of(context).pushReplacementNamed('/login');

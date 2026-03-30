@@ -302,8 +302,7 @@ class _StorageTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
-    final muted =
-        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45);
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Row(
