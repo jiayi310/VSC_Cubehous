@@ -1,14 +1,18 @@
 import 'dart:convert';
 import 'package:cubehous/view/General/Customer/customer_list.dart';
+import 'package:cubehous/view/Analysis/analysis_page.dart';
+import 'package:cubehous/view/Report/report_page.dart';
 import 'package:cubehous/view/General/Location/location_list.dart';
 import 'package:cubehous/view/General/Supplier/supplier_list.dart';
-import 'package:cubehous/view/Sales/collection_list.dart';
+import 'package:cubehous/view/Sales/Collection/collection_list.dart';
 import 'package:cubehous/view/Purchase/purchase_list.dart';
 import 'package:cubehous/view/Warehouse/Receiving/receiving_list.dart';
 import 'package:cubehous/view/Warehouse/Inbound/inbound_list.dart';
+import 'package:cubehous/view/Warehouse/Outbound/outbound_list.dart';
+import 'package:cubehous/view/Warehouse/StockAdjustment/stock_adjustment_list.dart';
 import 'package:cubehous/view/Warehouse/StockTake/stock_take_list.dart';
-import 'package:cubehous/view/Sales/quotation_list.dart';
-import 'package:cubehous/view/Sales/sales_list.dart';
+import 'package:cubehous/view/Sales/Quotation/quotation_list.dart';
+import 'package:cubehous/view/Sales/Sales/sales_list.dart';
 import 'package:flutter/material.dart';
 import 'about_us.dart';
 import 'settings.dart';
@@ -279,19 +283,35 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const InboundListPage()),
       );
+    } else if (module == 'Outbound') {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const OutboundListPage()),
+      );
     } else if (module == 'Stock Take') {
       if (!_hasAccess('STOCKTAKE_VIEW')) { _showNoAccessDialog(); return; }
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const StockTakeListPage()),
+      );
+    } else if (module == 'Stock Adjustment'){
+      if (!_hasAccess('STOCKADJUSTMENT_VIEW')) { _showNoAccessDialog(); return; }
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const StockAdjustmentListPage()),
       );
     } else if (module == 'Receiving') {
       if (!_hasAccess('RECEIVING_VIEW')) { _showNoAccessDialog(); return; }
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const ReceivingListPage()),
       );
+    } else if (module == 'Analysis') {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const AnalysisPage()),
+      );
+    } else if (module == 'Reports') {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const ReportPage()),
+      );
     } else if (module == 'Put Away' ||
         module == 'Picking' ||
-        module == 'Packing' ||
         module == 'Stock Transfer' ||
         module == 'Stock Adjustment') {
       _comingSoon(module);
@@ -354,25 +374,18 @@ class _WarehouseTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final sections = [
       _WarehouseSection(
-        label: 'Inbound',
-        icon: Icons.arrow_downward_rounded,
+        label: 'Inbound & Outbound',
+        icon: Icons.swap_vert_rounded,
         color: const Color(0xFF1565C0),
         items: [
           _ModuleItem('Inbound', 'assests/images/inbound.png',
               () => onModuleTap('Inbound'),
               iconData: Icons.move_to_inbox_rounded,
               iconColor: const Color(0xFF1565C0)),
-        ],
-      ),
-      _WarehouseSection(
-        label: 'Outbound',
-        icon: Icons.arrow_upward_rounded,
-        color: const Color(0xFFE65100),
-        items: [
-          _ModuleItem('Picking', 'assests/images/picking.png',
-              () => onModuleTap('Picking')),
-          _ModuleItem('Packing', 'assests/images/packing.png',
-              () => onModuleTap('Packing')),
+          _ModuleItem('Outbound', 'assests/images/outbound.png',
+              () => onModuleTap('Outbound'),
+              iconData: Icons.outbox_rounded,
+              iconColor: const Color(0xFFE65100)),
         ],
       ),
       _WarehouseSection(
@@ -380,14 +393,16 @@ class _WarehouseTab extends StatelessWidget {
         icon: Icons.inventory_2_outlined,
         color: const Color(0xFF2E7D32),
         items: [
-          _ModuleItem('Receiving', 'assests/images/receiving.png',
-              () => onModuleTap('Receiving')),
           _ModuleItem('Stock Take', 'assests/images/stocktake.png',
               () => onModuleTap('Stock Take')),
-          _ModuleItem('Stock Transfer', 'assests/images/transfer.png',
-              () => onModuleTap('Stock Transfer')),
           _ModuleItem('Stock Adjustment', 'assests/images/adjustment.png',
               () => onModuleTap('Stock Adjustment')),
+          _ModuleItem('Receiving', 'assests/images/receiving.png',
+              () => onModuleTap('Receiving')),
+          // _ModuleItem('Picking', 'assests/images/picking.png',
+          //     () => onModuleTap('Picking')),
+          // _ModuleItem('Stock Transfer', 'assests/images/transfer.png',
+          //     () => onModuleTap('Stock Transfer')),
         ],
       ),
     ];
@@ -500,6 +515,14 @@ class _GeneralTab extends StatelessWidget {
           () => onModuleTap('Suppliers')),
       _ModuleItem('Locations', 'assests/images/location.png',
           () => onModuleTap('Locations')),
+      _ModuleItem('Analysis', 'assests/images/analysis.png',
+          () => onModuleTap('Analysis'),
+          iconData: Icons.analytics_outlined,
+          iconColor: const Color(0xFF1565C0)),
+      _ModuleItem('Reports', 'assests/images/report.png',
+          () => onModuleTap('Reports'),
+          iconData: Icons.bar_chart_rounded,
+          iconColor: const Color(0xFF6A1B9A)),
     ];
     return _ModuleGrid(items: modules, columnCount: columnCount);
   }

@@ -1,31 +1,34 @@
+import 'package:cubehous/common/pagination_bar.dart';
+import 'package:cubehous/view/Common/common_dialog.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
+import 'package:intl/intl.dart';
 import '../../../api/api_endpoints.dart';
 import '../../../api/base_client.dart';
 import '../../../common/date_pill.dart';
 import '../../../common/direction_chip.dart';
 import '../../../common/dots_loading.dart';
-import '../../../common/pagination_bar.dart';
 import '../../../common/session_manager.dart';
-import '../../../models/receiving.dart';
-import 'receiving_detail.dart';
-import 'receiving_form.dart';
+import '../../../models/sales.dart';
+import 'sales_customer_history.dart';
+import 'sales_detail.dart';
+import 'sales_form.dart';
 
 const _sortOptions = [
   ('Doc No', 'DocNo'),
   ('Doc Date', 'DocDate'),
-  ('Supplier', 'SupplierName'),
+  ('Customer', 'CustomerName'),
+  ('Total', 'FinalTotal'),
 ];
 
-class ReceivingListPage extends StatefulWidget {
-  const ReceivingListPage({super.key});
+class SalesListPage extends StatefulWidget {
+  const SalesListPage({super.key});
 
   @override
-  State<ReceivingListPage> createState() => _ReceivingListPageState();
+  State<SalesListPage> createState() => _SalesListPageState();
 }
 
-class _ReceivingListPageState extends State<ReceivingListPage> {
+class _SalesListPageState extends State<SalesListPage> {
   // Session
   String _apiKey = '';
   String _companyGUID = '';
@@ -33,18 +36,18 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
   String _userSessionID = '';
   List<String> _accessRights = [];
 
-  // Settings
-  int _itemsPerPage = 20;
-
-  // Data
-  List<ReceivingListItem> _items = [];
-  bool _isLoading = false;
-  String? _error;
-
   // Pagination
+  int _itemsPerPage = 20;
   int _currentPage = 0;
   int _totalPages = 1;
   int _totalCount = 0;
+
+  // Data
+  List<SalesListItem> _items = [];
+  bool _isInitialized = false;
+  bool _isLoading = false;
+  bool _hasDraft = false;
+  String? _error;
 
   // Search & sort
   final _searchController = TextEditingController();
@@ -55,12 +58,13 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
   // Date filter
   DateTime _fromDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
   DateTime _toDate = DateTime.now();
-  final _dateFmt = DateFormat('dd/MM/yyyy');
+  late DateFormat _dateFmt;
+  late NumberFormat _amtFmt;
+  late String _currency;
 
   final _scrollController = ScrollController();
 
-  int get _activeFilters =>
-      (_sortBy != 'DocNo' ? 1 : 0) + (_sortAsc ? 1 : 0);
+  int get _activeFilters => (_sortBy != 'DocNo' ? 1 : 0) + (!_sortAsc ? 0 : 1);
 
   @override
   void initState() {
@@ -83,6 +87,9 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
       SessionManager.getUserSessionID(),
       SessionManager.getUserAccessRight(),
       SessionManager.getItemsPerPage(),
+      SessionManager.getSalesDecimalPoint(),
+      SessionManager.getDateFormat(),
+      SessionManager.getCurrencySymbol(),
     ]);
     _apiKey = results[0] as String;
     _companyGUID = results[1] as String;
@@ -90,147 +97,29 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
     _userSessionID = results[3] as String;
     _accessRights = results[4] as List<String>;
     _itemsPerPage = results[5] as int;
-    await _fetchReceivings(page: 0);
+    final dp = results[6] as int;
+    _amtFmt = NumberFormat('#,##0.${'0' * dp}');
+    final de = results[7] as String;
+    _dateFmt = DateFormat(de);
+    _currency = results[8] as String;
+    await Future.wait([
+      _fetchSales(page: 0),
+      _refreshDraftFlag(),
+    ]);
+    if (mounted) setState(() => _isInitialized = true);
+  }
+
+  Future<void> _refreshDraftFlag() async {
+    final has = await SessionManager.hasSalesDraft();
+    if (mounted) setState(() => _hasDraft = has);
   }
 
   bool _hasAccess(String right) => _accessRights.contains(right);
 
-  void _showNoAccessDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Access Denied'),
-        content: const Text(
-            'You do not have the access right to perform this action.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<bool?> _confirmDelete(String docNo) {
-    return showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        final cs = Theme.of(ctx).colorScheme;
-        return AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          contentPadding: EdgeInsets.zero,
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 20),
-              Container(
-                width: 80,
-                height: 64,
-                decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha: 0.10),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.delete_outline_rounded,
-                    size: 32, color: Colors.red),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Delete Receiving',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Text(
-                  'Are you sure you want to delete\n$docNo?',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      fontSize: 13,
-                      color: cs.onSurface.withValues(alpha: 0.6),
-                      height: 1.5),
-                ),
-              ),
-              const SizedBox(height: 24),
-              Divider(height: 1, color: cs.outline.withValues(alpha: 0.15)),
-              IntrinsicHeight(
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextButton(
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.only(
-                                bottomLeft: Radius.circular(20)),
-                          ),
-                        ),
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: Text('Cancel',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: cs.onSurface.withValues(alpha: 0.6))),
-                      ),
-                    ),
-                    VerticalDivider(
-                        width: 1,
-                        color: cs.outline.withValues(alpha: 0.15)),
-                    Expanded(
-                      child: TextButton(
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.only(
-                                bottomRight: Radius.circular(20)),
-                          ),
-                        ),
-                        onPressed: () => Navigator.pop(ctx, true),
-                        child: const Text('Delete',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.red)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Future<bool> _deleteReceiving(int docID) async {
-    try {
-      await BaseClient.post(
-        ApiEndpoints.removeReceiving,
-        body: {
-          'apiKey': _apiKey,
-          'companyGUID': _companyGUID,
-          'userID': _userID,
-          'userSessionID': _userSessionID,
-          'docID': docID,
-        },
-      );
-      return true;
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(
-            content: Text('Failed to delete: $e'),
-            behavior: SnackBarBehavior.floating,
-          ));
-      }
-      return false;
-    }
-  }
-
-  Future<void> _fetchReceivings({required int page}) async {
+  Future<void> _fetchSales({required int page}) async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
     if (_isLoading) return;
     setState(() {
       _isLoading = true;
@@ -238,7 +127,7 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
     });
     try {
       final response = await BaseClient.post(
-        ApiEndpoints.getReceivingList,
+        ApiEndpoints.getSalesList,
         body: {
           'apiKey': _apiKey,
           'companyGUID': _companyGUID,
@@ -255,21 +144,17 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
         },
       );
 
-      final result =
-          ReceivingResponse.fromJson(response as Map<String, dynamic>);
+      final result = SalesResponse.fromJson(response as Map<String, dynamic>);
       final items = result.data ?? [];
-      final totalRecord =
-          result.pagination?.totalRecord ?? items.length;
-      final pageSize =
-          result.pagination?.pageSize ?? _itemsPerPage;
+      final totalRecord = result.pagination?.totalRecord ?? items.length;
+      final pageSize = result.pagination?.pageSize ?? _itemsPerPage;
 
       if (mounted) {
         setState(() {
           _items = items;
           _currentPage = page;
           _totalCount = totalRecord;
-          _totalPages =
-              pageSize > 0 ? (totalRecord / pageSize).ceil() : 1;
+          _totalPages = pageSize > 0 ? (totalRecord / pageSize).ceil() : 1;
           if (_totalPages < 1) _totalPages = 1;
         });
         if (_scrollController.hasClients) _scrollController.jumpTo(0);
@@ -281,12 +166,41 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
     }
   }
 
-  Future<void> _onRefresh() => _fetchReceivings(page: 0);
-
   void _onSearchSubmit(String value) {
     setState(() => _searchQuery = value.trim());
-    _fetchReceivings(page: 0);
+    _fetchSales(page: 0);
   }
+
+  Future<bool> _deleteSales(int docID) async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
+    try {
+      await BaseClient.post(
+        ApiEndpoints.removeSales,
+        body: {
+          'apiKey': _apiKey,
+          'companyGUID': _companyGUID,
+          'userID': _userID,
+          'userSessionID': _userSessionID,
+          'docID': docID,
+        },
+      );
+      return true;
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text(e is BadRequestException ? e.message : 'Failed to delete: $e'),
+            behavior: SnackBarBehavior.floating,
+          ));
+      }
+      return false;
+    }
+  }
+
+  Future<void> _onRefresh() => _fetchSales(page: 0);
 
   Future<void> _pickFromDate() async {
     final picked = await showDatePicker(
@@ -297,7 +211,7 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
     );
     if (picked != null) {
       setState(() => _fromDate = picked);
-      _fetchReceivings(page: 0);
+      _fetchSales(page: 0);
     }
   }
 
@@ -310,7 +224,7 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
     );
     if (picked != null) {
       setState(() => _toDate = picked);
-      _fetchReceivings(page: 0);
+      _fetchSales(page: 0);
     }
   }
 
@@ -327,63 +241,56 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
             _sortBy = sortBy;
             _sortAsc = sortAsc;
           });
-          _fetchReceivings(page: 0);
+          _fetchSales(page: 0);
         },
         onReset: () {
           setState(() {
             _sortBy = 'DocNo';
-            _sortAsc = false;
+            _sortAsc = true;
           });
-          _fetchReceivings(page: 0);
+          _fetchSales(page: 0);
         },
       ),
     );
   }
 
-  Future<void> _onDeleteTap(ReceivingListItem item) async {
-    if (!_hasAccess('RECEIVING_DELETE')) {
-      _showNoAccessDialog();
-      return;
-    }
-    final confirmed = await _confirmDelete(item.docNo);
-    if (confirmed != true) return;
-    final ok = await _deleteReceiving(item.docID);
-    if (ok && mounted) {
-      setState(() => _items.removeWhere((e) => e.docID == item.docID));
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(
-          content: Text('Receiving deleted'),
-          behavior: SnackBarBehavior.floating,
-        ));
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    if (!_isInitialized) {
+      return const Scaffold(body: Center(child: DotsLoading()));
+    }
     final primary = Theme.of(context).colorScheme.primary;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Receiving',
+        title: const Text('Sales Orders',
             style: TextStyle(fontWeight: FontWeight.w600)),
         centerTitle: true,
         actions: [
           IconButton(
-            icon: const Icon(Icons.add),
-            tooltip: 'New Receiving',
-            onPressed: () async {
-              if (!_hasAccess('RECEIVING_ADD')) {
-                _showNoAccessDialog();
-                return;
-              }
-              final result = await Navigator.push<bool>(
+            icon: const Icon(Icons.person_search_outlined),
+            tooltip: 'Customer History',
+            onPressed: () {
+              Navigator.push(
                 context,
                 MaterialPageRoute(
-                    builder: (_) => const ReceivingFormPage()),
+                    builder: (_) => const CustomerHistoryPage()),
               );
-              if (result == true && mounted) {
-                _fetchReceivings(page: _currentPage);
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.add),
+            tooltip: 'New Sales Order',
+            onPressed: () async {
+              if (!_hasAccess('SALES_ADD')) {
+                CommonDialog.showNoAccessRightDialog(context);
+                return;
               }
+              final created = await Navigator.push<bool>(
+                context,
+                MaterialPageRoute(builder: (_) => const SalesFormPage()),
+              );
+              if (created == true) _fetchSales(page: 0);
+              _refreshDraftFlag();
             },
           ),
         ],
@@ -397,24 +304,26 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
                 child: Row(
                   children: [
                     Expanded(
-                        child: DatePill(
-                      label: 'From',
-                      date: _dateFmt.format(_fromDate),
-                      onTap: _pickFromDate,
-                      primary: primary,
-                    )),
+                      child: DatePill(
+                        label: 'From',
+                        date: _dateFmt.format(_fromDate),
+                        onTap: _pickFromDate,
+                        primary: primary,
+                      ),
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
-                        child: DatePill(
-                      label: 'To',
-                      date: _dateFmt.format(_toDate),
-                      onTap: _pickToDate,
-                      primary: primary,
-                    )),
+                      child: DatePill(
+                        label: 'To',
+                        date: _dateFmt.format(_toDate),
+                        onTap: _pickToDate,
+                        primary: primary,
+                      ),
+                    ),
                   ],
                 ),
               ),
-              const SizedBox(height: 3),
+              SizedBox(height: 3),
               // Search + filter row
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
@@ -427,21 +336,19 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
                         onSubmitted: _onSearchSubmit,
                         onChanged: (v) => setState(() {}),
                         decoration: InputDecoration(
-                          hintText: 'Search receivings...',
+                          hintText: 'Search sales orders...',
                           suffixIcon: _searchController.text.isNotEmpty
                               ? IconButton(
-                                  icon:
-                                      const Icon(Icons.clear, size: 18),
+                                  icon: const Icon(Icons.clear, size: 18),
                                   onPressed: () {
                                     _searchController.clear();
                                     setState(() => _searchQuery = '');
-                                    _fetchReceivings(page: 0);
+                                    _fetchSales(page: 0);
                                   },
                                 )
                               : null,
                           isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(
-                              vertical: 10, horizontal: 12),
+                          contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                             borderSide: BorderSide.none,
@@ -451,15 +358,13 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
                       ),
                     ),
                     const SizedBox(width: 8),
+                    // Search button
                     Material(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .surfaceContainerHighest,
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(12),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(12),
-                        onTap: () =>
-                            _onSearchSubmit(_searchController.text),
+                        onTap: () => _onSearchSubmit(_searchController.text),
                         child: const SizedBox(
                           width: 44,
                           height: 44,
@@ -468,13 +373,12 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
                       ),
                     ),
                     const SizedBox(width: 8),
+                    // Filter button
                     Stack(
                       alignment: Alignment.center,
                       children: [
                         Material(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surfaceContainerHighest,
+                          color: Theme.of(context).colorScheme.surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(12),
                           child: InkWell(
                             borderRadius: BorderRadius.circular(12),
@@ -482,8 +386,7 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
                             child: const SizedBox(
                               width: 44,
                               height: 44,
-                              child:
-                                  Icon(Icons.tune_outlined, size: 20),
+                              child: Icon(Icons.tune_outlined, size: 20),
                             ),
                           ),
                         ),
@@ -506,9 +409,9 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
                                       color: Colors.white,
                                       fontWeight: FontWeight.bold),
                                 ),
+                                ),
                               ),
                             ),
-                          ),
                       ],
                     ),
                   ],
@@ -527,10 +430,23 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
     if (_error != null) return _buildError();
     final primary = Theme.of(context).colorScheme.primary;
     final start = _currentPage * _itemsPerPage + 1;
-    final end =
-        ((_currentPage + 1) * _itemsPerPage).clamp(0, _totalCount);
+    final end = ((_currentPage + 1) * _itemsPerPage).clamp(0, _totalCount);
     return Column(
       children: [
+        if (_hasDraft) _DraftBanner(
+          onContinue: () async {
+            await Navigator.push<bool>(
+              context,
+              MaterialPageRoute(builder: (_) => const SalesFormPage()),
+            );
+            _fetchSales(page: 0);
+            _refreshDraftFlag();
+          },
+          onDiscard: () async {
+            await SessionManager.clearSalesDraft();
+            setState(() => _hasDraft = false);
+          },
+        ),
         if (_items.isEmpty)
           Expanded(child: _buildEmpty())
         else
@@ -541,14 +457,76 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
           isLoading: _isLoading,
           primary: primary,
           onPrev: _currentPage > 0
-              ? () => _fetchReceivings(page: _currentPage - 1)
+              ? () => _fetchSales(page: _currentPage - 1)
               : null,
           onNext: _currentPage < _totalPages - 1
-              ? () => _fetchReceivings(page: _currentPage + 1)
+              ? () => _fetchSales(page: _currentPage + 1)
               : null,
         ),
       ],
     );
+  }
+
+  Future<void> _onEditTap(SalesListItem item) async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
+    if (!_hasAccess('SALES_EDIT')) {
+      if (!mounted) return;
+      CommonDialog.showNoAccessRightDialog(context);
+      return;
+    }
+    SalesDoc? doc;
+    try {
+      final json = await BaseClient.post(
+        ApiEndpoints.getSales,
+        body: {
+          'apiKey': _apiKey,
+          'companyGUID': _companyGUID,
+          'userID': _userID,
+          'userSessionID': _userSessionID,
+          'docID': item.docID,
+        },
+      );
+      doc = SalesDoc.fromJson(json as Map<String, dynamic>);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text('Failed to load sales: $e'),
+            behavior: SnackBarBehavior.floating,
+          ));
+      }
+      return;
+    }
+    if (!mounted) return;
+    final updated = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SalesFormPage(initialDoc: doc),
+      ),
+    );
+    if (updated == true && mounted) _fetchSales(page: _currentPage);
+  }
+
+  Future<void> _onDeleteTap(SalesListItem item) async {
+    if (!_hasAccess('SALES_DELETE')) {
+      CommonDialog.showNoAccessRightDialog(context);
+      return;
+    }
+    final confirmed = await CommonDialog.confirmDeleteDialog(context, item.docNo, 'Sales');
+    if (confirmed != true) return;
+    final ok = await _deleteSales(item.docID);
+    if (ok && mounted) {
+      setState(() => _items.removeWhere((e) => e.docID == item.docID));
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+          content: Text('Sales deleted'),
+          behavior: SnackBarBehavior.floating,
+        ));
+    }
   }
 
   Widget _buildList({required int start, required int end}) {
@@ -556,76 +534,78 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
       onRefresh: _onRefresh,
       child: SlidableAutoCloseBehavior(
         child: ListView.builder(
-          controller: _scrollController,
-          itemCount: _items.length + 1,
-          itemBuilder: (context, i) {
-            if (i == _items.length) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                child: Center(
-                  child: Text(
-                    'Showing $start–$end of $_totalCount records',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.5),
-                    ),
+        controller: _scrollController,
+        itemCount: _items.length + 1,
+        itemBuilder: (context, i) {
+          if (i == _items.length) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              child: Center(
+                child: Text(
+                  'Showing $start–$end of $_totalCount records',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
                   ),
                 ),
-              );
-            }
-            final item = _items[i];
-            return Slidable(
-              key: ValueKey(item.docID),
-              endActionPane: ActionPane(
-                motion: const DrawerMotion(),
-                extentRatio: 0.26,
-                children: [
-                  CustomSlidableAction(
-                    onPressed: (_) => _onDeleteTap(item),
-                    backgroundColor:
-                        Colors.red.withValues(alpha: 0.12),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: const [
-                        Icon(Icons.delete_outline,
-                            size: 26, color: Colors.red),
-                        SizedBox(height: 4),
-                        Text('Delete',
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.red)),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              child: _ReceivingTile(
-                item: item,
-                dateFmt: _dateFmt,
-                onTap: () async {
-                  final result = await Navigator.push<bool>(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          ReceivingDetailPage(docID: item.docID),
-                    ),
-                  );
-                  if (result == true && mounted) {
-                    _fetchReceivings(page: _currentPage);
-                  }
-                },
               ),
             );
-          },
-        ),
+          }
+          final item = _items[i];
+          return Slidable(
+            key: ValueKey(item.docID),
+            endActionPane: ActionPane(
+              motion: const DrawerMotion(),
+              extentRatio: 0.48,
+              children: [
+                CustomSlidableAction(
+                  onPressed: (_) => _onEditTap(item),
+                  backgroundColor: const Color(0xFF1565C0).withValues(alpha: 0.12),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.edit_outlined, size: 26, color: Color(0xFF1565C0)),
+                      SizedBox(height: 4),
+                      Text('Edit', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1565C0))),
+                    ],
+                  ),
+                ),
+                CustomSlidableAction(
+                  onPressed: (_) => _onDeleteTap(item),
+                  backgroundColor: Colors.red.withValues(alpha: 0.12),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.delete_outline, size: 26, color: Colors.red),
+                      SizedBox(height: 4),
+                      Text('Delete', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.red)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            child: _SalesTile(
+              item: item,
+              amtFmt: _amtFmt,
+              dateFmt: _dateFmt,
+              currency: _currency,
+              onTap: () async {
+                final result = await Navigator.push<bool>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => SalesDetailPage(docID: item.docID),
+                  ),
+                );
+                if (result == true && mounted) _fetchSales(page: _currentPage);
+              },
+            ),
+          );
+        },
+      ),
       ),
     );
   }
-
+  
   Widget _buildError() {
     return Center(
       child: Padding(
@@ -640,9 +620,9 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
                     .error
                     .withValues(alpha: 0.6)),
             const SizedBox(height: 14),
-            const Text('Failed to load receivings',
-                style: TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w600)),
+            const Text('Failed to load sales',
+                style:
+                    TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             Text(_error ?? '',
                 textAlign: TextAlign.center,
@@ -654,7 +634,7 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
                         .withValues(alpha: 0.4))),
             const SizedBox(height: 16),
             FilledButton.icon(
-              onPressed: () => _fetchReceivings(page: 0),
+              onPressed: () => _fetchSales(page: 0),
               icon: const Icon(Icons.refresh),
               label: const Text('Retry'),
             ),
@@ -671,7 +651,7 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.move_to_inbox_outlined,
+            Icon(Icons.receipt_outlined,
                 size: 52,
                 color: Theme.of(context)
                     .colorScheme
@@ -681,7 +661,7 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
             Text(
               _searchQuery.isNotEmpty
                   ? 'No results for "$_searchQuery"'
-                  : 'No receivings found',
+                  : 'No sales found',
               style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
@@ -698,17 +678,21 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Receiving tile
+// Sales Tile
 // ─────────────────────────────────────────────────────────────────────
 
-class _ReceivingTile extends StatelessWidget {
-  final ReceivingListItem item;
+class _SalesTile extends StatelessWidget {
+  final SalesListItem item;
+  final NumberFormat amtFmt;
   final DateFormat dateFmt;
+  final String currency;
   final VoidCallback onTap;
 
-  const _ReceivingTile({
+  const _SalesTile({
     required this.item,
+    required this.amtFmt,
     required this.dateFmt,
+    required this.currency,
     required this.onTap,
   });
 
@@ -716,7 +700,7 @@ class _ReceivingTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
     final muted =
-        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.65);
+        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45);
 
     DateTime? docDate;
     try {
@@ -726,8 +710,7 @@ class _ReceivingTile extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
           border: Border(
             bottom: BorderSide(
@@ -751,7 +734,7 @@ class _ReceivingTile extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
-                Icons.move_to_inbox_outlined,
+                Icons.receipt_outlined,
                 size: 22,
                 color: item.isVoid ? Colors.red : primary,
               ),
@@ -778,54 +761,42 @@ class _ReceivingTile extends StatelessWidget {
                       if (item.isVoid) _VoidBadge(),
                       const Spacer(),
                       Text(
-                        docDate != null
-                            ? dateFmt.format(docDate)
-                            : item.docDate,
+                        docDate != null ? dateFmt.format(docDate) : item.docDate,
                         style: TextStyle(fontSize: 11, color: muted),
                       ),
                     ],
                   ),
                   const SizedBox(height: 4),
-                  // Row 2: Supplier name
+                  // Row 2: Customer name
                   Text(
-                    item.supplierName,
+                    item.customerName,
                     style: const TextStyle(
                         fontSize: 14, fontWeight: FontWeight.w500),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 4),
-                  // Row 3: PO ref + PUT AWAY badge
+                  // Row 3: Sales agent | Total
                   Row(
                     children: [
-                      if ((item.purchaseDocNo ?? '').isNotEmpty)
-                        Text(
-                          'PO: ${item.purchaseDocNo}',
-                          style: TextStyle(
-                              fontSize: 11,
-                              color: muted),
-                        )
-                      else
-                        const SizedBox.shrink(),
-                      const Spacer(),
-                      if (item.isPutAway)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.green.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: const Text(
-                            'PUT AWAY',
-                            style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.green,
-                              letterSpacing: 0.5,
-                            ),
+                      if ((item.salesAgent ?? '').isNotEmpty) ...[
+                        Icon(Icons.person_outline, size: 12, color: muted),
+                        const SizedBox(width: 3),
+                        Expanded(
+                          child: Text(
+                            item.salesAgent!,
+                            style: TextStyle(fontSize: 12, color: muted),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
+                      ] else
+                        const Spacer(),
+                      Text(
+                        '$currency ${amtFmt.format(item.finalTotal)}',
+                        style: const TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.w700),
+                      ),
                     ],
                   ),
                 ],
@@ -833,6 +804,71 @@ class _ReceivingTile extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+
+class _DraftBanner extends StatelessWidget {
+  final VoidCallback onContinue;
+  final VoidCallback onDiscard;
+
+  const _DraftBanner({required this.onContinue, required this.onDiscard});
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: primary.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.edit_note_rounded, size: 22, color: primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Unsaved Draft',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: primary)),
+                Text('You have a sales in progress.',
+                    style: TextStyle(
+                        fontSize: 11,
+                        color: primary.withValues(alpha: 0.7))),
+              ],
+            ),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: primary,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            onPressed: onDiscard,
+            child: const Text('Discard', style: TextStyle(fontSize: 12)),
+          ),
+          const SizedBox(width: 4),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+            ),
+            onPressed: onContinue,
+            child: const Text('Continue'),
+          ),
+        ],
       ),
     );
   }
@@ -904,8 +940,7 @@ class _SortSheetState extends State<_SortSheet> {
       expand: false,
       builder: (_, scrollCtrl) => Material(
         color: surface,
-        borderRadius:
-            const BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
         child: Column(
           children: [
             const SizedBox(height: 12),
@@ -962,8 +997,8 @@ class _SortSheetState extends State<_SortSheet> {
                           horizontal: 12, vertical: 12),
                     ),
                     items: _sortOptions
-                        .map((o) => DropdownMenuItem(
-                            value: o.$2, child: Text(o.$1)))
+                        .map((o) =>
+                            DropdownMenuItem(value: o.$2, child: Text(o.$1)))
                         .toList(),
                     onChanged: (v) => setState(() => _sortBy = v!),
                   ),
@@ -981,8 +1016,7 @@ class _SortSheetState extends State<_SortSheet> {
                           label: 'Ascending',
                           icon: Icons.arrow_upward_rounded,
                           selected: _sortAsc,
-                          onTap: () =>
-                              setState(() => _sortAsc = true),
+                          onTap: () => setState(() => _sortAsc = true),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -991,8 +1025,7 @@ class _SortSheetState extends State<_SortSheet> {
                           label: 'Descending',
                           icon: Icons.arrow_downward_rounded,
                           selected: !_sortAsc,
-                          onTap: () =>
-                              setState(() => _sortAsc = false),
+                          onTap: () => setState(() => _sortAsc = false),
                         ),
                       ),
                     ],
@@ -1004,16 +1037,14 @@ class _SortSheetState extends State<_SortSheet> {
                       style: FilledButton.styleFrom(
                         minimumSize: const Size.fromHeight(48),
                         shape: RoundedRectangleBorder(
-                            borderRadius:
-                                BorderRadius.circular(12)),
+                            borderRadius: BorderRadius.circular(12)),
                       ),
                       onPressed: () {
                         Navigator.pop(context);
                         widget.onApply(_sortBy, _sortAsc);
                       },
                       child: const Text('Apply',
-                          style:
-                              TextStyle(fontWeight: FontWeight.w600)),
+                          style: TextStyle(fontWeight: FontWeight.w600)),
                     ),
                   ),
                 ],

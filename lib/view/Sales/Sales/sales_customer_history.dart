@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../api/api_endpoints.dart';
-import '../../api/base_client.dart';
-import '../../common/date_pill.dart';
-import '../../common/dots_loading.dart';
-import '../../common/session_manager.dart';
-import '../../models/customer.dart';
-import '../../models/sales.dart';
+import '../../../api/api_endpoints.dart';
+import '../../../api/base_client.dart';
+import '../../../common/date_pill.dart';
+import '../../../common/dots_loading.dart';
+import '../../../common/session_manager.dart';
+import '../../../models/customer.dart';
+import '../../../models/sales.dart';
 
 class CustomerHistoryPage extends StatefulWidget {
   const CustomerHistoryPage({super.key});

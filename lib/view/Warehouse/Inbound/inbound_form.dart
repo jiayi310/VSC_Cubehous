@@ -68,7 +68,6 @@ class _InboundFormPageState extends State<InboundFormPage> {
   final _amtFmt = NumberFormat('#,##0.00');
 
   static const _docTypeOptions = [
-    (code: 'GRN', label: 'Goods Received Note'),
     (code: 'PUT', label: 'Put Away'),
   ];
 
@@ -1530,13 +1529,13 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
                 children: [
                   FormTotalPriceSummaryRow(
                     label: 'Subtotal',
-                    value: StockCommon.FormatDp(_subtotal, _salesDp),
+                    value: StockCommon.formatDP(_subtotal, _salesDp),
                     muted: muted),
 
                   const SizedBox(height: 6),
                   FormTotalPriceSummaryRow(
                     label: 'Discount',
-                    value: '- ${StockCommon.FormatDp(_discAmt, _salesDp)}',
+                    value: '- ${StockCommon.formatDP(_discAmt, _salesDp)}',
                     muted: muted,
                     valueColor: _discAmt == 0 ? muted : Mycolor.discountTextColor),
                         
@@ -1544,14 +1543,14 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
                     const SizedBox(height: 6),
                     FormTotalPriceSummaryRow(
                       label: 'Tax', 
-                      value: '+ ${StockCommon.FormatDp(_taxAmt, _salesDp)}',
+                      value: '+ ${StockCommon.formatDP(_taxAmt, _salesDp)}',
                       muted: muted,
                       valueColor: _taxType?.taxCode == null ? muted : Mycolor.taxTextColor),
                   ],
                   Divider(height: 16, color: primary.withValues(alpha: 0.15)),
                   FormTotalPriceSummaryRow(
                       label: 'Total', 
-                      value: StockCommon.FormatDp(_lineTotal + (widget.enableTax ? _taxAmt : 0), _salesDp),
+                      value: StockCommon.formatDP(_lineTotal + (widget.enableTax ? _taxAmt : 0), _salesDp),
                       muted: muted,
                       valueColor: Mycolor.primary),
                 ],

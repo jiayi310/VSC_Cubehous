@@ -2,14 +2,14 @@ import 'package:cubehous/view/Common/common_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:intl/intl.dart';
-import '../../api/api_endpoints.dart';
-import '../../api/base_client.dart';
-import '../../common/date_pill.dart';
-import '../../common/direction_chip.dart';
-import '../../common/dots_loading.dart';
-import '../../common/pagination_bar.dart';
-import '../../common/session_manager.dart';
-import '../../models/collection.dart';
+import '../../../api/api_endpoints.dart';
+import '../../../api/base_client.dart';
+import '../../../common/date_pill.dart';
+import '../../../common/direction_chip.dart';
+import '../../../common/dots_loading.dart';
+import '../../../common/pagination_bar.dart';
+import '../../../common/session_manager.dart';
+import '../../../models/collection.dart';
 import 'collection_detail.dart';
 import 'collection_form.dart';
 
@@ -254,7 +254,7 @@ class _CollectionListPageState extends State<CollectionListPage> {
     _userSessionID = await SessionManager.getUserSessionID();
     if (!_hasAccess('COLLECT_EDIT')) {
       if (!mounted) return;
-      CommonDialog.ShowNoAccessRightDialog(context);
+      CommonDialog.showNoAccessRightDialog(context);
       return;
     }
     CollectionDoc? doc;
@@ -293,10 +293,10 @@ class _CollectionListPageState extends State<CollectionListPage> {
 
   Future<void> _onDeleteTap(CollectionListItem item) async {
     if (!_hasAccess('COLLECT_DELETE')) {
-      CommonDialog.ShowNoAccessRightDialog(context);
+      CommonDialog.showNoAccessRightDialog(context);
       return;
     }
-    final confirmed = await CommonDialog.ConfirmDeleteDialog(context, item.docNo, 'Collection');
+    final confirmed = await CommonDialog.confirmDeleteDialog(context, item.docNo, 'Collection');
     if (confirmed != true) return;
     final ok = await _deleteCollection(item.docID);
     if (ok && mounted) {
@@ -325,7 +325,7 @@ class _CollectionListPageState extends State<CollectionListPage> {
             tooltip: 'New Collection',
             onPressed: () async {
               if (!_hasAccess('COLLECT_ADD')) {
-                CommonDialog.ShowNoAccessRightDialog(context);
+                CommonDialog.showNoAccessRightDialog(context);
                 return;
               }
               final created = await Navigator.push<bool>(

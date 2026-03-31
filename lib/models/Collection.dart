@@ -1,3 +1,6 @@
+import 'package:cubehous/models/sales.dart';
+import 'package:flutter/material.dart';
+
 import 'pagination.dart';
 
 double _toD(dynamic v) {
@@ -177,4 +180,26 @@ class PaymentTypeItem {
       PaymentTypeItem(
         paymentType: (json['paymentType'] as String?) ?? '',
       );
+}
+
+class CollectionSelectedSales {
+  final SalesListItem sale;
+  final TextEditingController paymentAmtCtrl;
+  final int collectMappingID;
+
+  CollectionSelectedSales(this.sale)
+      : paymentAmtCtrl =
+            TextEditingController(text: sale.outstanding.toStringAsFixed(2)),
+        collectMappingID = 0;
+
+  CollectionSelectedSales.fromMapping(
+    this.sale, {
+    required double paymentAmt,
+    required this.collectMappingID,
+  }) : paymentAmtCtrl =
+            TextEditingController(text: paymentAmt.toStringAsFixed(2));
+
+  void dispose() => paymentAmtCtrl.dispose();
+
+  double get paymentAmt => double.tryParse(paymentAmtCtrl.text) ?? 0;
 }

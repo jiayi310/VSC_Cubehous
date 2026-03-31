@@ -5,7 +5,7 @@ import 'package:cubehous/models/stock_detail.dart';
 
 class StockCommon {
 
-  static double PriceForCategory(StockUOMDto uom, int cat) {
+  static double priceForCategory(StockUOMDto uom, int cat) {
     switch (cat) {
       case 2: return uom.price2;
       case 3: return uom.price3;
@@ -19,30 +19,30 @@ class StockCommon {
   /// Fetches StockDetail and returns the price for [uomName] and current
   /// customer price category. Returns null if the call fails.
   static Future<double?> fetchUOMPrice(int stockID, String uomName, int priceCategory) async {
-    String _apiKey = await SessionManager.getApiKey();
-    String _companyGUID = await SessionManager.getCompanyGUID();
-    int _userID = await SessionManager.getUserID();
-    String _userSessionID = await SessionManager.getUserSessionID();
+    String apiKey = await SessionManager.getApiKey();
+    String companyGUID = await SessionManager.getCompanyGUID();
+    int userID = await SessionManager.getUserID();
+    String userSessionID = await SessionManager.getUserSessionID();
     try {
       final json = await BaseClient.post(
         ApiEndpoints.getStock,
         body: {
-          'apiKey': _apiKey,
-          'companyGUID': _companyGUID,
-          'userID': _userID,
-          'userSessionID': _userSessionID,
+          'apiKey': apiKey,
+          'companyGUID': companyGUID,
+          'userID': userID,
+          'userSessionID': userSessionID,
           'stockID': stockID,
         },
       );
       final detail = StockDetail.fromJson(json as Map<String, dynamic>);
       final uomDto =
           detail.stockUOMDtoList.where((u) => u.uom == uomName).firstOrNull;
-      if (uomDto != null) return PriceForCategory(uomDto, priceCategory);
+      if (uomDto != null) return priceForCategory(uomDto, priceCategory);
     } catch (_) {}
     return null;
   }
 
-  static String FormatDp(double v, int dp) {
+  static String formatDP(double v, int dp) {
     if (dp == 0) return v.toInt().toString();
     return v.toStringAsFixed(dp);
   }

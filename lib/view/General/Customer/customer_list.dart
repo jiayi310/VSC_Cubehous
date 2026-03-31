@@ -852,7 +852,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                             _label('Sort By', primary),
                             const SizedBox(height: 8),
                             DropdownButtonFormField<String>(
-                              value: _sortBy,
+                              initialValue: _sortBy,
                               decoration: InputDecoration(
                                 border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(10)),

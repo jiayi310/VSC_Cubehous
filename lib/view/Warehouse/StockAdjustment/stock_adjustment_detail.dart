@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'package:cubehous/models/stock_adjustment.dart';
 import 'package:cubehous/view/Common/common_dialog.dart';
 import 'package:cubehous/view/Common/decoration.dart';
+import 'package:cubehous/view/Warehouse/StockAdjustment/stock_adjustment_form.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:open_filex/open_filex.dart';
@@ -9,18 +11,16 @@ import '../../../api/api_endpoints.dart';
 import '../../../api/base_client.dart';
 import '../../../common/dots_loading.dart';
 import '../../../common/session_manager.dart';
-import '../../../models/stock_take.dart';
-import 'stock_take_form.dart';
 
-class StockTakeDetailPage extends StatefulWidget {
-  final StockTakeListItem item;
-  const StockTakeDetailPage({super.key, required this.item});
+class StockAdjustmentDetailPage extends StatefulWidget {
+  final StockAdjustmentListItem item;
+  const StockAdjustmentDetailPage({super.key, required this.item});
 
   @override
-  State<StockTakeDetailPage> createState() => _StockTakeDetailPageState();
+  State<StockAdjustmentDetailPage> createState() => _StockAdjustmentDetailPageState();
 }
 
-class _StockTakeDetailPageState extends State<StockTakeDetailPage>
+class _StockAdjustmentDetailPageState extends State<StockAdjustmentDetailPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
 
@@ -30,7 +30,7 @@ class _StockTakeDetailPageState extends State<StockTakeDetailPage>
   String _userSessionID = '';
   List<String> _accessRights = [];
 
-  StockTakeDoc? _doc;
+  StockAdjustmentDoc? _doc;
   bool _loading = true;
   bool _pdfLoading = false;
   String? _error;
@@ -84,7 +84,7 @@ class _StockTakeDetailPageState extends State<StockTakeDetailPage>
     setState(() => _pdfLoading = true);
     try {
       final bytes = await BaseClient.postBytes(
-        ApiEndpoints.getStockTakeReport,
+        ApiEndpoints.getStockAdjustmentReport,
         body: {
           'apiKey': _apiKey,
           'companyGUID': _companyGUID,
@@ -123,11 +123,11 @@ class _StockTakeDetailPageState extends State<StockTakeDetailPage>
   }
 
   Future<void> _deleteDoc() async {
-    if (!_accessRights.contains('STOCKTAKE_DELETE')){
+    if (!_accessRights.contains('STOCKADJUSTMENT_DELETE')){
       CommonDialog.showNoAccessRightDialog(context);
       return;
     }
-    final confirmed = await CommonDialog.confirmDeleteDialog(context, _doc!.docNo, 'Stock Take');
+    final confirmed = await CommonDialog.confirmDeleteDialog(context, _doc!.docNo, 'Stock Adjustment');
     if (confirmed != true) return;
 
     _apiKey = await SessionManager.getApiKey();
@@ -136,7 +136,7 @@ class _StockTakeDetailPageState extends State<StockTakeDetailPage>
 
     try {
       await BaseClient.post(
-        ApiEndpoints.removeStockTake,
+        ApiEndpoints.removeStockAdjustment,
         body: {
           'apiKey': _apiKey,
           'companyGUID': _companyGUID,
@@ -149,7 +149,7 @@ class _StockTakeDetailPageState extends State<StockTakeDetailPage>
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(const SnackBar(
-          content: Text('Stock Take deleted'),
+          content: Text('Stock Adjustment deleted'),
           behavior: SnackBarBehavior.floating,
         ));
       Navigator.pop(context, true);
@@ -167,10 +167,10 @@ class _StockTakeDetailPageState extends State<StockTakeDetailPage>
 
   Future<void> _loadImages() async {
     if (_doc == null) return;
-    final lines = _doc!.stockTakeDetails;
+    final lines = _doc!.stockAdjustmentDetails;
     if (lines.isEmpty) return;
 
-    final linesByStockId = <int, List<StockTakeDetailLine>>{};
+    final linesByStockId = <int, List<StockAdjustmentDetailLine>>{};
     for (final line in lines) {
       linesByStockId.putIfAbsent(line.stockID, () => []).add(line);
     }
@@ -208,7 +208,7 @@ class _StockTakeDetailPageState extends State<StockTakeDetailPage>
     });
     try {
       final json = await BaseClient.post(
-        ApiEndpoints.getStockTake,
+        ApiEndpoints.getStockAdjustment,
         body: {
           'apiKey': _apiKey,
           'companyGUID': _companyGUID,
@@ -218,7 +218,7 @@ class _StockTakeDetailPageState extends State<StockTakeDetailPage>
         },
       );
       setState(() {
-        _doc = StockTakeDoc.fromJson(json as Map<String, dynamic>);
+        _doc = StockAdjustmentDoc.fromJson(json as Map<String, dynamic>);
         _loading = false;
       });
     } catch (e) {
@@ -234,7 +234,7 @@ class _StockTakeDetailPageState extends State<StockTakeDetailPage>
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          _doc?.docNo ?? 'Stock Take',
+          _doc?.docNo ?? 'Stock Adjustment',
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
         centerTitle: true,
@@ -272,21 +272,21 @@ class _StockTakeDetailPageState extends State<StockTakeDetailPage>
                     onSelected: (value) async {
                       switch (value) {
                         case 'edit':
-                          if (!_accessRights.contains('STOCKTAKE_EDIT')) {
+                          if (!_accessRights.contains('STOCKADJUSTMENT_EDIT')) {
                             CommonDialog.showNoAccessRightDialog(context);
                             return;
                           }
                           final updated = await Navigator.push<bool>(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => StockTakeFormPage(initialDoc: _doc),
+                              builder: (_) => StockAdjustmentFormPage(initialDoc: _doc),
                             ),
                           );
                           if (updated == true && mounted) await _loadDoc();
                         case 'pdf':
                           _downloadPdf();
                         case 'delete':
-                          if (!_accessRights.contains('STOCKTAKE_DELETE')) {
+                          if (!_accessRights.contains('STOCKADJUSTMENT_DELETE')) {
                             CommonDialog.showNoAccessRightDialog(context);
                             return;
                           }
@@ -376,10 +376,10 @@ class _StockTakeDetailPageState extends State<StockTakeDetailPage>
 
   // ── Totals bar ────────────────────────────────────────────────────
 
-  Widget _buildTotalsBar(StockTakeDoc doc) {
+  Widget _buildTotalsBar(StockAdjustmentDoc doc) {
     final primary = Theme.of(context).colorScheme.primary;
     final cs = Theme.of(context).colorScheme;
-    final itemCount = doc.stockTakeDetails.length;
+    final itemCount = doc.stockAdjustmentDetails.length;
     return Container(
       color: cs.surfaceContainerLow,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -400,24 +400,12 @@ class _StockTakeDetailPageState extends State<StockTakeDetailPage>
 
   // ── Info tab ──────────────────────────────────────────────────────
 
-  Widget _buildInfoTab(StockTakeDoc doc) {
+  Widget _buildInfoTab(StockAdjustmentDoc doc) {
     DateTime? docDate;
     try {
       docDate = DateTime.parse(doc.docDate);
     } catch (_) {}
 
-    final String? statusLabel = doc.isVoid
-        ? 'Void'
-        : doc.isMerge
-            ? 'Merged'
-            : doc.isAdjustment
-                ? 'Adjusted'
-                : null;
-    final Color statusColor = doc.isVoid
-        ? Colors.red
-        : doc.isMerge
-            ? Colors.blue
-            : Colors.orange;
 
     return ListView(
       children: [
@@ -427,37 +415,6 @@ class _StockTakeDetailPageState extends State<StockTakeDetailPage>
         DetailDetailRow(label: 'Location', value: doc.location),
         DetailDetailRow(label: 'Description', value: doc.description ?? '-'),
         DetailDetailRow(label: 'Remark', value: doc.remark ?? '-'),
-        if (statusLabel != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: Row(
-              children: [
-                Text('Status',
-                    style: TextStyle(
-                        fontSize: 13,
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withValues(alpha: 0.5))),
-                const Spacer(),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: statusColor.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    statusLabel,
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: statusColor),
-                  ),
-                ),
-              ],
-            ),
-          ),
         const SizedBox(height: 16),
       ],
     );
@@ -465,8 +422,8 @@ class _StockTakeDetailPageState extends State<StockTakeDetailPage>
 
   // ── Items tab ─────────────────────────────────────────────────────
 
-  Widget _buildItemsTab(StockTakeDoc doc) {
-    if (doc.stockTakeDetails.isEmpty) {
+  Widget _buildItemsTab(StockAdjustmentDoc doc) {
+    if (doc.stockAdjustmentDetails.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
@@ -497,8 +454,8 @@ class _StockTakeDetailPageState extends State<StockTakeDetailPage>
     }
 
     // Build ordered group map by storageCode (preserves first-seen order)
-    final groupMap = <String, List<StockTakeDetailLine>>{};
-    for (final line in doc.stockTakeDetails) {
+    final groupMap = <String, List<StockAdjustmentDetailLine>>{};
+    for (final line in doc.stockAdjustmentDetails) {
       final key = line.storageCode.isNotEmpty ? line.storageCode : 'No Storage';
       groupMap.putIfAbsent(key, () => []).add(line);
     }
@@ -507,10 +464,10 @@ class _StockTakeDetailPageState extends State<StockTakeDetailPage>
     if (groupMap.length == 1 && groupMap.containsKey('No Storage')) {
       return ListView.builder(
         padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-        itemCount: doc.stockTakeDetails.length,
+        itemCount: doc.stockAdjustmentDetails.length,
         itemBuilder: (_, i) => _ItemTile(
           index: i,
-          line: doc.stockTakeDetails[i],
+          line: doc.stockAdjustmentDetails[i],
           qtyFmt: _qtyFmt,
         ),
       );
@@ -542,7 +499,7 @@ class _StockTakeDetailPageState extends State<StockTakeDetailPage>
                     .error
                     .withValues(alpha: 0.6)),
             const SizedBox(height: 14),
-            const Text('Failed to load stock take',
+            const Text('Failed to load stock adjustment',
                 style:
                     TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
@@ -573,7 +530,7 @@ class _StockTakeDetailPageState extends State<StockTakeDetailPage>
 
 class _GroupSection extends StatefulWidget {
   final String groupName;
-  final List<StockTakeDetailLine> lines;
+  final List<StockAdjustmentDetailLine> lines;
   final NumberFormat qtyFmt;
 
   const _GroupSection({
@@ -697,7 +654,7 @@ class _GroupSectionState extends State<_GroupSection> {
 
 class _ItemTile extends StatefulWidget {
   final int index;
-  final StockTakeDetailLine line;
+  final StockAdjustmentDetailLine line;
   final NumberFormat qtyFmt;
 
   const _ItemTile({

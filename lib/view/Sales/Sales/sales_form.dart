@@ -1,36 +1,38 @@
 import 'dart:convert';
 import 'package:cubehous/common/my_color.dart';
 import 'package:cubehous/common/stock_common.dart';
+import 'package:cubehous/models/sales.dart';
+import 'package:cubehous/models/quotation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:intl/intl.dart';
-import '../../api/api_endpoints.dart';
-import '../../api/base_client.dart';
-import '../../common/dots_loading.dart';
-import '../../common/session_manager.dart';
-import '../../models/customer.dart';
-import '../../models/location.dart';
-import '../../models/tax_type.dart';
-import '../../models/sales_agent.dart';
-import '../../models/shipping_method.dart';
-import '../../models/stock.dart';
-import '../../models/stock_detail.dart';
-import '../../models/quotation.dart';
-import '../Common/customer_picker_page.dart';
-import '../Common/decoration.dart';
-import '../Common/sales_agent_picker_page.dart';
-import '../Common/Stock/item_picker_page.dart';
+import '../../../api/api_endpoints.dart';
+import '../../../api/base_client.dart';
+import '../../../common/dots_loading.dart';
+import '../../../common/session_manager.dart';
+import '../../../models/customer.dart';
+import '../../../models/location.dart';
+import '../../../models/tax_type.dart';
+import '../../../models/sales_agent.dart';
+import '../../../models/shipping_method.dart';
+import '../../../models/stock.dart';
+import '../../../models/stock_detail.dart';
+import '../../Common/customer_picker_page.dart';
+import '../../Common/decoration.dart';
+import '../../Common/sales_agent_picker_page.dart';
+import '../../Common/Stock/item_picker_page.dart';
 
-class QuotationFormPage extends StatefulWidget {
-  final QuotationDoc? initialDoc;
-  const QuotationFormPage({super.key, this.initialDoc});
+class SalesFormPage extends StatefulWidget {
+  final SalesDoc? initialDoc;
+  final QuotationDoc? fromQuotation;
+  const SalesFormPage({super.key, this.initialDoc, this.fromQuotation});
 
   @override
-  State<QuotationFormPage> createState() => _QuotationFormPageState();
+  State<SalesFormPage> createState() => _SalesFormPageState();
 }
 
-class _QuotationFormPageState extends State<QuotationFormPage> {
+class _SalesFormPageState extends State<SalesFormPage> {
   // Session
   String _apiKey = '';
   String _companyGUID = '';
@@ -49,13 +51,13 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
   final _descriptionCtrl = TextEditingController();
   final _remarkCtrl = TextEditingController();
 
-  // Quotation-specific customer info (editable per quotation, does not affect original customer)
+  // Sales-specific customer info (editable per Sales, does not affect original customer)
   String _addr1 = '', _addr2 = '', _addr3 = '', _addr4 = '';
   String _deliverAddr1 = '', _deliverAddr2 = '', _deliverAddr3 = '', _deliverAddr4 = '';
   String _attention = '', _phone = '', _fax = '', _email = '', _name = '';
 
   // Line items
-  final List<_LineItemQuotation> _lines = [];
+  final List<_LineItemSales> _lines = [];
 
   // Dropdown data
   List<TaxType> _taxTypes = [];
@@ -229,7 +231,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
         'taxRate': l.selectedTaxType?.taxRate,
       }).toList(),
     };
-    await SessionManager.saveQuotationDraft(jsonEncode(draft));
+    await SessionManager.saveSalesDraft(jsonEncode(draft));
   }
 
   void _restoreDraft(Map<String, dynamic> j) {
@@ -261,7 +263,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
 
     for (final lj in (j['lines'] as List<dynamic>? ?? [])) {
       final m = lj as Map<String, dynamic>;
-      final line = _LineItemQuotation()
+      final line = _LineItemSales()
         ..stockID = (m['stockID'] as int?) ?? 0
         ..stockCode = (m['stockCode'] as String?) ?? ''
         ..uom = (m['uom'] as String?) ?? ''
@@ -279,7 +281,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
     }
   }
 
-  void _initFromDoc(QuotationDoc doc) {
+  void _initFromDoc(SalesDoc doc) {
     _editDocID = doc.docID;
     _editDocNo = doc.docNo;
     _docDate = DateTime.tryParse(doc.docDate) ?? DateTime.now();
@@ -335,8 +337,8 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
           );
     }
 
-    for (final detail in doc.quotationDetails) {
-      final line = _LineItemQuotation()
+    for (final detail in doc.salesDetails) {
+      final line = _LineItemSales()
         ..dtlID = detail.dtlID
         ..stockID = detail.stockID
         ..stockCode = detail.stockCode
@@ -360,13 +362,13 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
 
   Future<void> _checkAndRestoreDraft() async {
     if (_isEditMode) return;
-    final raw = await SessionManager.getQuotationDraft();
+    final raw = await SessionManager.getSalesDraft();
     if (raw == null || raw.isEmpty) return;
     try {
       final j = jsonDecode(raw) as Map<String, dynamic>;
       if (mounted) setState(() => _restoreDraft(j));
     } catch (_) {
-      await SessionManager.clearQuotationDraft();
+      await SessionManager.clearSalesDraft();
     }
   }
 
@@ -451,7 +453,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
     );
     if (result == null) return false; // cancelled
     if (result == 'save') await _saveDraft();
-    if (result == 'discard') await SessionManager.clearQuotationDraft();
+    if (result == 'discard') await SessionManager.clearSalesDraft();
     return true;
   }
 
@@ -524,13 +526,13 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
       }).toList();
 
       await BaseClient.post(
-        _isEditMode ? ApiEndpoints.updateQuotation : ApiEndpoints.createQuotation,
+        _isEditMode ? ApiEndpoints.updateSales : ApiEndpoints.createSales,
         body: {
           'apiKey': _apiKey,
           'companyGUID': _companyGUID,
           'userID': _userID,
           'userSessionID': _userSessionID,
-          'quotationForm': {
+          'salesForm': {
             'docID': docID,
             'docNo': docNo,
             'docDate': _docDate.toIso8601String(),
@@ -563,12 +565,12 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
             'lastModifiedDateTime': DateTime.now().toIso8601String(),
             'createdUserID': _userID,
             'createdDateTime': DateTime.now().toIso8601String(),
-            'quotationDetails': details,
+            'salesDetails': details,
           },
         },
       );
 
-      if (!_isEditMode) await SessionManager.clearQuotationDraft();
+      if (!_isEditMode) await SessionManager.clearSalesDraft();
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       setState(() => _isSaving = false);
@@ -840,7 +842,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
       context,
       MaterialPageRoute(
         builder: (_) => ItemPickerPage(
-          module: "QUOTATION",
+          module: "SALES",
           apiKey: _apiKey,
           companyGUID: _companyGUID,
           userID: _userID,
@@ -875,7 +877,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
       context,
       MaterialPageRoute(
         builder: (_) => ItemPickerPage(
-          module: "QUOTATION",
+          module: "SALES",
           apiKey: _apiKey,
           companyGUID: _companyGUID,
           userID: _userID,
@@ -888,7 +890,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
           await StockCommon.fetchUOMPrice(picked.stockID, picked.baseUOM, _priceCategory) ??
           picked.baseUOMPrice1;
       if (!mounted) return;
-      final line = _LineItemQuotation();
+      final line = _LineItemSales();
       line.stockID = picked.stockID;
       line.stockCode = picked.stockCode;
       line.uom = picked.baseUOM;
@@ -953,11 +955,11 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
         setState(() {
           // Fill the first empty line, or add a new one
           final emptyIndex = _lines.indexWhere((l) => l.stockID == 0);
-          final _LineItemQuotation line;
+          final _LineItemSales line;
           if (emptyIndex >= 0) {
             line = _lines[emptyIndex];
           } else {
-            line = _LineItemQuotation();
+            line = _LineItemSales();
             _lines.add(line);
           }
           line.stockID = found!.stockID;
@@ -1008,7 +1010,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
             duration: const Duration(milliseconds: 400),
             curve: Curves.easeOutCubic,
           ),
-          child: Text(_isEditMode ? 'Edit Quotation' : 'New Quotation',
+          child: Text(_isEditMode ? 'Edit Sales' : 'New Sales',
               style: const TextStyle(fontWeight: FontWeight.w600)),
         ),
         centerTitle: true,
@@ -1104,7 +1106,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
                                               icon: Icon(Icons.edit_outlined,
                                                   size: 18,
                                                   color: Theme.of(context).colorScheme.primary),
-                                              tooltip: 'Edit info for this quotation',
+                                              tooltip: 'Edit info for this sales',
                                               onPressed: _editCustomerInfo,
                                               padding: EdgeInsets.zero,
                                               constraints: const BoxConstraints(),
@@ -1276,7 +1278,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
                                   children: [
                                     SlidableAutoCloseBehavior(
                                       child: Column(
-                                        children: _lines.asMap().entries.map((e) => _LineItemCardQuotation(
+                                        children: _lines.asMap().entries.map((e) => _LineItemCardSales(
                                               key: ValueKey(e.key),
                                               index: e.key,
                                               item: e.value,
@@ -1461,7 +1463,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
 // Line item model
 // ─────────────────────────────────────────────────────────────────────
 
-class _LineItemQuotation {
+class _LineItemSales {
   int dtlID = 0;
   int stockID = 0;
   String stockCode = '';
@@ -1534,9 +1536,9 @@ class _LineItemQuotation {
 // Line item card
 // ─────────────────────────────────────────────────────────────────────
 
-class _LineItemCardQuotation extends StatefulWidget {
+class _LineItemCardSales extends StatefulWidget {
   final int index;
-  final _LineItemQuotation item;
+  final _LineItemSales item;
   final List<TaxType> taxTypes;
   final List<Location> locations;
   final NumberFormat amtFmt;
@@ -1552,7 +1554,7 @@ class _LineItemCardQuotation extends StatefulWidget {
   final int userID;
   final String userSessionID;
 
-  const _LineItemCardQuotation({
+  const _LineItemCardSales({
     super.key,
     required this.index,
     required this.item,
@@ -1573,10 +1575,10 @@ class _LineItemCardQuotation extends StatefulWidget {
   });
 
   @override
-  State<_LineItemCardQuotation> createState() => _LineItemCardQuotationState();
+  State<_LineItemCardSales> createState() => _LineItemCardSalesState();
 }
 
-class _LineItemCardQuotationState extends State<_LineItemCardQuotation> {
+class _LineItemCardSalesState extends State<_LineItemCardSales> {
   bool _expanded = false;
   double? _pointerDownX;
   double? _pointerDownY;
@@ -1919,7 +1921,7 @@ class _LineItemCardQuotationState extends State<_LineItemCardQuotation> {
 // ─────────────────────────────────────────────────────────────────────
 
 class _LineItemEditSheet extends StatefulWidget {
-  final _LineItemQuotation item;
+  final _LineItemSales item;
   final List<TaxType> taxTypes;
   final bool enableTax;
   final int priceCategory;
@@ -1991,8 +1993,8 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
       _qtyDp = qtyDp;
       _salesDp = salesDp;
       _loadingUOM = false;
-      _qtyCtrl.text = StockCommon.FormatDp(qty, qtyDp);
-      _priceCtrl.text = StockCommon.FormatDp(price, salesDp);
+      _qtyCtrl.text = StockCommon.formatDP(qty, qtyDp);
+      _priceCtrl.text = StockCommon.formatDP(price, salesDp);
     });
   }
 
@@ -2030,7 +2032,7 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
   double get _qty => double.tryParse(_qtyCtrl.text) ?? 0;
   double get _unitPrice => double.tryParse(_priceCtrl.text) ?? 0;
   double get _subtotal => _qty * _unitPrice;
-  double get _discAmt => _LineItemQuotation._parseDiscountAmt(_discCtrl.text, _subtotal);
+  double get _discAmt => _LineItemSales._parseDiscountAmt(_discCtrl.text, _subtotal);
   double get _lineTotal => _subtotal - _discAmt;
   double get _taxAmt {
     final rate = _taxType?.taxRate ?? 0;
@@ -2041,19 +2043,19 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
   // ── Qty helpers ──────────────────────────────────────────────────────
   void _clampQty() {
     final v = double.tryParse(_qtyCtrl.text) ?? 0;
-    if (v < 1) _qtyCtrl.text = StockCommon.FormatDp(1.0, _qtyDp);
+    if (v < 1) _qtyCtrl.text = StockCommon.formatDP(1.0, _qtyDp);
   }
 
   void _stepQty(int delta) {
     final current = double.tryParse(_qtyCtrl.text) ?? 1;
     final next = (current + delta).clamp(1.0, double.infinity);
-    _qtyCtrl.text = StockCommon.FormatDp(next, _qtyDp);
+    _qtyCtrl.text = StockCommon.formatDP(next, _qtyDp);
   }
 
   void _onUOMSelected(StockUOMDto uom) {
     setState(() {
       _uom = uom.uom;
-      _priceCtrl.text = StockCommon.FormatDp(StockCommon.PriceForCategory(uom, widget.priceCategory), _salesDp);
+      _priceCtrl.text = StockCommon.formatDP(StockCommon.priceForCategory(uom, widget.priceCategory), _salesDp);
     });
   }
 
@@ -2335,18 +2337,18 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
                 children: [
                   FormTotalPriceSummaryRow(
                     label: 'Subtotal',
-                    value: StockCommon.FormatDp(_subtotal, _salesDp),
+                    value: StockCommon.formatDP(_subtotal, _salesDp),
                     muted: muted),
                   FormTotalPriceSummaryRow(
                     label: 'Discount',
-                    value: '- ${StockCommon.FormatDp(_discAmt, _salesDp)}',
+                    value: '- ${StockCommon.formatDP(_discAmt, _salesDp)}',
                     muted: muted,
                     valueColor: _discAmt == 0 ? muted : Mycolor.discountTextColor),
                         
                   if (widget.enableTax) ...[
                     FormTotalPriceSummaryRow(
                       label: 'Tax', 
-                      value: '+ ${StockCommon.FormatDp(_taxAmt, _salesDp)}',
+                      value: '+ ${StockCommon.formatDP(_taxAmt, _salesDp)}',
                       muted: muted,
                       valueColor: _taxAmt == 0 ? muted : Mycolor.taxTextColor),
                         
@@ -2354,7 +2356,7 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
                   Divider(height: 16, color: primary.withValues(alpha: 0.15)),
                   FormTotalPriceSummaryRow(
                       label: 'Total', 
-                      value: StockCommon.FormatDp(_lineTotal + (widget.enableTax ? _taxAmt : 0), _salesDp),
+                      value: StockCommon.formatDP(_lineTotal + (widget.enableTax ? _taxAmt : 0), _salesDp),
                       muted: muted,
                       valueColor: Mycolor.primary),
                         

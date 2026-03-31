@@ -7,11 +7,11 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
-import '../../api/api_endpoints.dart';
-import '../../api/base_client.dart';
-import '../../common/dots_loading.dart';
-import '../../common/session_manager.dart';
-import '../../models/collection.dart';
+import '../../../api/api_endpoints.dart';
+import '../../../api/base_client.dart';
+import '../../../common/dots_loading.dart';
+import '../../../common/session_manager.dart';
+import '../../../models/collection.dart';
 import 'collection_form.dart';
 
 class CollectionDetailPage extends StatefulWidget {
@@ -123,10 +123,10 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
 
   Future<void> _deleteDoc() async {
     if (!_accessRights.contains('COLLECT_DELETE')){
-      CommonDialog.ShowNoAccessRightDialog(context);
+      CommonDialog.showNoAccessRightDialog(context);
       return;
     }
-    final confirmed = await CommonDialog.ConfirmDeleteDialog(context, _doc!.docNo, 'Collection');
+    final confirmed = await CommonDialog.confirmDeleteDialog(context, _doc!.docNo, 'Collection');
     if (confirmed != true) return;
 
     _apiKey = await SessionManager.getApiKey();
@@ -222,7 +222,7 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
                       switch (value) {
                         case 'edit':
                           if (!_accessRights.contains('COLLECT_EDIT')) {
-                            CommonDialog.ShowNoAccessRightDialog(context);
+                            CommonDialog.showNoAccessRightDialog(context);
                             return;
                           }
                           final updated = await Navigator.push<bool>(
@@ -237,7 +237,7 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
                           _downloadPdf();
                         case 'delete':
                           if (!_accessRights.contains('COLLECT_DELETE')) {
-                            CommonDialog.ShowNoAccessRightDialog(context);
+                            CommonDialog.showNoAccessRightDialog(context);
                             return;
                           }
                           _deleteDoc();
@@ -600,7 +600,6 @@ class _OrderMappingCardState extends State<_OrderMappingCard> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final cardTheme = Theme.of(context).cardTheme;
     final m = widget.mapping;
     final primary = widget.primary;
     final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.65);
@@ -696,13 +695,13 @@ class _OrderMappingCardState extends State<_OrderMappingCard> {
                           height: 1,
                           color: cs.outline.withValues(alpha: 0.2)),
                       const SizedBox(height: 8),
-                      BreakdownRow(
+                      breakdownRow(
                           'Sales Total',
                           widget.salesFmt.format(m.salesFinalTotal),
                           cs,
                           valueColor: muted),
                       const SizedBox(height: 3),
-                      BreakdownRow(
+                      breakdownRow(
                           'Outstanding',
                           widget.salesFmt.format(m.editOutstanding),
                           cs,

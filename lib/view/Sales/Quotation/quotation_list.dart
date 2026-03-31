@@ -1,15 +1,16 @@
 import 'package:cubehous/view/Common/common_dialog.dart';
+import 'package:cubehous/view/Common/decoration.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
-import '../../api/api_endpoints.dart';
-import '../../api/base_client.dart';
-import '../../common/date_pill.dart';
-import '../../common/direction_chip.dart';
-import '../../common/dots_loading.dart';
-import '../../common/pagination_bar.dart';
-import '../../common/session_manager.dart';
-import '../../models/quotation.dart';
+import '../../../api/api_endpoints.dart';
+import '../../../api/base_client.dart';
+import '../../../common/date_pill.dart';
+import '../../../common/direction_chip.dart';
+import '../../../common/dots_loading.dart';
+import '../../../common/pagination_bar.dart';
+import '../../../common/session_manager.dart';
+import '../../../models/quotation.dart';
 import 'quotation_detail.dart';
 import 'quotation_form.dart';
 
@@ -270,7 +271,7 @@ class _QuotationListPageState extends State<QuotationListPage> {
             tooltip: 'New Quotation',
             onPressed: () async {
               if (!_hasAccess('QUOTATION_ADD')) {
-                CommonDialog.ShowNoAccessRightDialog(context);
+                CommonDialog.showNoAccessRightDialog(context);
                 return;
               }
               final created = await Navigator.push<bool>(
@@ -458,7 +459,7 @@ class _QuotationListPageState extends State<QuotationListPage> {
     _userSessionID = await SessionManager.getUserSessionID();
     if (!_hasAccess('QUOTATION_EDIT')) {
       if (!mounted) return;
-      CommonDialog.ShowNoAccessRightDialog(context);
+      CommonDialog.showNoAccessRightDialog(context);
       return;
     }
     QuotationDoc? doc;
@@ -497,10 +498,10 @@ class _QuotationListPageState extends State<QuotationListPage> {
 
   Future<void> _onDeleteTap(QuotationListItem item) async {
     if (!_hasAccess('QUOTATION_DELETE')) {
-      CommonDialog.ShowNoAccessRightDialog(context);
+      CommonDialog.showNoAccessRightDialog(context);
       return;
     }
-    final confirmed = await CommonDialog.ConfirmDeleteDialog(context, item.docNo, 'Quotation');
+    final confirmed = await CommonDialog.confirmDeleteDialog(context, item.docNo, 'Quotation');
     if (confirmed != true) return;
     final ok = await _deleteQuotation(item.docID);
     if (ok && mounted) {
@@ -743,7 +744,7 @@ class _QuotationTile extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 6),
-                      if (quotation.isVoid) _VoidBadge(),
+                      if (quotation.isVoid) VoidBadge(),
                       const Spacer(),
                       Text(
                         docDate != null ? dateFmt.format(docDate) : quotation.docDate,
@@ -791,7 +792,6 @@ class _QuotationTile extends StatelessWidget {
     );
   }
 }
-
 
 class _DraftBanner extends StatelessWidget {
   final VoidCallback onContinue;
@@ -852,28 +852,6 @@ class _DraftBanner extends StatelessWidget {
             child: const Text('Continue'),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _VoidBadge extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: Colors.red.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: const Text(
-        'VOID',
-        style: TextStyle(
-          fontSize: 9,
-          fontWeight: FontWeight.w800,
-          color: Colors.red,
-          letterSpacing: 0.5,
-        ),
       ),
     );
   }

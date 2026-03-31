@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 class CommonDialog {
   
-  static void ShowNoAccessRightDialog(BuildContext context) {
+  static void showNoAccessRightDialog(BuildContext context) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -18,7 +18,7 @@ class CommonDialog {
     );
   }
 
-  static Future<bool?> ConfirmDeleteDialog(BuildContext context, String docNo, String moduleName) {
+  static Future<bool?> confirmDeleteDialog(BuildContext context, String docNo, String moduleName) {
     return showDialog<bool>(
       context: context,
       builder: (ctx) {
@@ -43,7 +43,7 @@ class CommonDialog {
               ),
               const SizedBox(height: 16),
               Text(
-                'Delete ' + moduleName,
+                'Delete $moduleName',
                 style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 8),

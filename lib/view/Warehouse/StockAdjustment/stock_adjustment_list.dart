@@ -1,34 +1,33 @@
-import 'package:cubehous/common/pagination_bar.dart';
+import 'package:cubehous/models/stock_adjustment.dart';
 import 'package:cubehous/view/Common/common_dialog.dart';
+import 'package:cubehous/view/Warehouse/StockAdjustment/stock_adjustment_detail.dart';
+import 'package:cubehous/view/Warehouse/StockAdjustment/stock_adjustment_form.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:intl/intl.dart';
-import '../../api/api_endpoints.dart';
-import '../../api/base_client.dart';
-import '../../common/date_pill.dart';
-import '../../common/direction_chip.dart';
-import '../../common/dots_loading.dart';
-import '../../common/session_manager.dart';
-import '../../models/sales.dart';
-import 'customer_history.dart';
-import 'sales_detail.dart';
-import 'sales_form.dart';
+import '../../../api/api_endpoints.dart';
+import '../../../api/base_client.dart';
+import '../../../common/date_pill.dart';
+import '../../../common/direction_chip.dart';
+import '../../../common/dots_loading.dart';
+import '../../../common/status_badge.dart';
+import '../../../common/pagination_bar.dart';
+import '../../../common/session_manager.dart';
 
 const _sortOptions = [
   ('Doc No', 'DocNo'),
   ('Doc Date', 'DocDate'),
-  ('Customer', 'CustomerName'),
-  ('Total', 'FinalTotal'),
+  ('Location', 'Location'),
 ];
 
-class SalesListPage extends StatefulWidget {
-  const SalesListPage({super.key});
+class StockAdjustmentListPage extends StatefulWidget {
+  const StockAdjustmentListPage({super.key});
 
   @override
-  State<SalesListPage> createState() => _SalesListPageState();
+  State<StockAdjustmentListPage> createState() => _StockAdjustmentListPageState();
 }
 
-class _SalesListPageState extends State<SalesListPage> {
+class _StockAdjustmentListPageState extends State<StockAdjustmentListPage> {
   // Session
   String _apiKey = '';
   String _companyGUID = '';
@@ -43,11 +42,12 @@ class _SalesListPageState extends State<SalesListPage> {
   int _totalCount = 0;
 
   // Data
-  List<SalesListItem> _items = [];
+  List<StockAdjustmentListItem> _items = [];
   bool _isInitialized = false;
   bool _isLoading = false;
   bool _hasDraft = false;
   String? _error;
+
 
   // Search & sort
   final _searchController = TextEditingController();
@@ -59,8 +59,6 @@ class _SalesListPageState extends State<SalesListPage> {
   DateTime _fromDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
   DateTime _toDate = DateTime.now();
   late DateFormat _dateFmt;
-  late NumberFormat _amtFmt;
-  late String _currency;
 
   final _scrollController = ScrollController();
 
@@ -87,9 +85,7 @@ class _SalesListPageState extends State<SalesListPage> {
       SessionManager.getUserSessionID(),
       SessionManager.getUserAccessRight(),
       SessionManager.getItemsPerPage(),
-      SessionManager.getSalesDecimalPoint(),
       SessionManager.getDateFormat(),
-      SessionManager.getCurrencySymbol(),
     ]);
     _apiKey = results[0] as String;
     _companyGUID = results[1] as String;
@@ -97,26 +93,23 @@ class _SalesListPageState extends State<SalesListPage> {
     _userSessionID = results[3] as String;
     _accessRights = results[4] as List<String>;
     _itemsPerPage = results[5] as int;
-    final dp = results[6] as int;
-    _amtFmt = NumberFormat('#,##0.${'0' * dp}');
-    final de = results[7] as String;
+    final de = results[6] as String;
     _dateFmt = DateFormat(de);
-    _currency = results[8] as String;
     await Future.wait([
-      _fetchSales(page: 0),
+      _fetchStockAdjustment(page: 0),
       _refreshDraftFlag(),
     ]);
     if (mounted) setState(() => _isInitialized = true);
   }
 
   Future<void> _refreshDraftFlag() async {
-    final has = await SessionManager.hasSalesDraft();
+    final has = await SessionManager.hasStockAdjustmentDraft();
     if (mounted) setState(() => _hasDraft = has);
   }
 
   bool _hasAccess(String right) => _accessRights.contains(right);
 
-  Future<void> _fetchSales({required int page}) async {
+  Future<void> _fetchStockAdjustment({required int page}) async {
     _apiKey = await SessionManager.getApiKey();
     _companyGUID = await SessionManager.getCompanyGUID();
     _userSessionID = await SessionManager.getUserSessionID();
@@ -127,13 +120,12 @@ class _SalesListPageState extends State<SalesListPage> {
     });
     try {
       final response = await BaseClient.post(
-        ApiEndpoints.getSalesList,
+        ApiEndpoints.getStockAdjustmentList,
         body: {
           'apiKey': _apiKey,
           'companyGUID': _companyGUID,
           'userID': _userID,
           'userSessionID': _userSessionID,
-          'isFilterByCreatedDateTime': false,
           'fromDate': _fromDate.toIso8601String(),
           'toDate': _toDate.add(const Duration(days: 1)).toIso8601String(),
           'pageIndex': page,
@@ -144,14 +136,14 @@ class _SalesListPageState extends State<SalesListPage> {
         },
       );
 
-      final result = SalesResponse.fromJson(response as Map<String, dynamic>);
-      final items = result.data ?? [];
-      final totalRecord = result.pagination?.totalRecord ?? items.length;
+      final result = StockAdjustmentResponse.fromJson(response as Map<String, dynamic>);
+      final data = result.data ?? [];
+      final totalRecord = result.pagination?.totalRecord ?? data.length;
       final pageSize = result.pagination?.pageSize ?? _itemsPerPage;
 
       if (mounted) {
         setState(() {
-          _items = items;
+          _items = data;
           _currentPage = page;
           _totalCount = totalRecord;
           _totalPages = pageSize > 0 ? (totalRecord / pageSize).ceil() : 1;
@@ -168,16 +160,16 @@ class _SalesListPageState extends State<SalesListPage> {
 
   void _onSearchSubmit(String value) {
     setState(() => _searchQuery = value.trim());
-    _fetchSales(page: 0);
+    _fetchStockAdjustment(page: 0);
   }
 
-  Future<bool> _deleteSales(int docID) async {
+  Future<bool> _deleteStockAdjustment(int docID) async {
     _apiKey = await SessionManager.getApiKey();
     _companyGUID = await SessionManager.getCompanyGUID();
     _userSessionID = await SessionManager.getUserSessionID();
     try {
       await BaseClient.post(
-        ApiEndpoints.removeSales,
+        ApiEndpoints.removeStockAdjustment,
         body: {
           'apiKey': _apiKey,
           'companyGUID': _companyGUID,
@@ -200,7 +192,7 @@ class _SalesListPageState extends State<SalesListPage> {
     }
   }
 
-  Future<void> _onRefresh() => _fetchSales(page: 0);
+  Future<void> _onRefresh() => _fetchStockAdjustment(page: 0);
 
   Future<void> _pickFromDate() async {
     final picked = await showDatePicker(
@@ -211,7 +203,7 @@ class _SalesListPageState extends State<SalesListPage> {
     );
     if (picked != null) {
       setState(() => _fromDate = picked);
-      _fetchSales(page: 0);
+      _fetchStockAdjustment(page: 0);
     }
   }
 
@@ -224,7 +216,7 @@ class _SalesListPageState extends State<SalesListPage> {
     );
     if (picked != null) {
       setState(() => _toDate = picked);
-      _fetchSales(page: 0);
+      _fetchStockAdjustment(page: 0);
     }
   }
 
@@ -241,14 +233,14 @@ class _SalesListPageState extends State<SalesListPage> {
             _sortBy = sortBy;
             _sortAsc = sortAsc;
           });
-          _fetchSales(page: 0);
+          _fetchStockAdjustment(page: 0);
         },
         onReset: () {
           setState(() {
             _sortBy = 'DocNo';
             _sortAsc = true;
           });
-          _fetchSales(page: 0);
+          _fetchStockAdjustment(page: 0);
         },
       ),
     );
@@ -262,34 +254,24 @@ class _SalesListPageState extends State<SalesListPage> {
     final primary = Theme.of(context).colorScheme.primary;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Sales Orders',
+        title: const Text('Stock Adjustment',
             style: TextStyle(fontWeight: FontWeight.w600)),
         centerTitle: true,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.person_search_outlined),
-            tooltip: 'Customer History',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                    builder: (_) => const CustomerHistoryPage()),
-              );
-            },
-          ),
-          IconButton(
+            IconButton(
             icon: const Icon(Icons.add),
-            tooltip: 'New Sales Order',
+            tooltip: 'New Stock Adjustment',
             onPressed: () async {
-              if (!_hasAccess('SALES_ADD')) {
-                CommonDialog.ShowNoAccessRightDialog(context);
+              if (!_hasAccess('StockAdjustment_ADD')) {
+                CommonDialog.showNoAccessRightDialog(context);
                 return;
               }
               final created = await Navigator.push<bool>(
                 context,
-                MaterialPageRoute(builder: (_) => const SalesFormPage()),
+                MaterialPageRoute(
+                    builder: (_) => const StockAdjustmentFormPage()),
               );
-              if (created == true) _fetchSales(page: 0);
+              if (created == true) _fetchStockAdjustment(page: 0);
               _refreshDraftFlag();
             },
           ),
@@ -303,23 +285,19 @@ class _SalesListPageState extends State<SalesListPage> {
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
                 child: Row(
                   children: [
-                    Expanded(
-                      child: DatePill(
-                        label: 'From',
-                        date: _dateFmt.format(_fromDate),
-                        onTap: _pickFromDate,
-                        primary: primary,
-                      ),
-                    ),
+                    Expanded(child: DatePill(
+                      label: 'From',
+                      date: _dateFmt.format(_fromDate),
+                      onTap: _pickFromDate,
+                      primary: primary,
+                    )),
                     const SizedBox(width: 8),
-                    Expanded(
-                      child: DatePill(
-                        label: 'To',
-                        date: _dateFmt.format(_toDate),
-                        onTap: _pickToDate,
-                        primary: primary,
-                      ),
-                    ),
+                    Expanded(child: DatePill(
+                      label: 'To',
+                      date: _dateFmt.format(_toDate),
+                      onTap: _pickToDate,
+                      primary: primary,
+                    )),
                   ],
                 ),
               ),
@@ -336,14 +314,14 @@ class _SalesListPageState extends State<SalesListPage> {
                         onSubmitted: _onSearchSubmit,
                         onChanged: (v) => setState(() {}),
                         decoration: InputDecoration(
-                          hintText: 'Search sales orders...',
+                          hintText: 'Search stock adjustment...',
                           suffixIcon: _searchController.text.isNotEmpty
                               ? IconButton(
                                   icon: const Icon(Icons.clear, size: 18),
                                   onPressed: () {
                                     _searchController.clear();
                                     setState(() => _searchQuery = '');
-                                    _fetchSales(page: 0);
+                                    _fetchStockAdjustment(page: 0);
                                   },
                                 )
                               : null,
@@ -412,8 +390,8 @@ class _SalesListPageState extends State<SalesListPage> {
                                 ),
                               ),
                             ),
-                      ],
-                    ),
+                        ],
+                      ),
                   ],
                 ),
               ),
@@ -437,13 +415,13 @@ class _SalesListPageState extends State<SalesListPage> {
           onContinue: () async {
             await Navigator.push<bool>(
               context,
-              MaterialPageRoute(builder: (_) => const SalesFormPage()),
+              MaterialPageRoute(builder: (_) => const StockAdjustmentFormPage()),
             );
-            _fetchSales(page: 0);
+            _fetchStockAdjustment(page: 0);
             _refreshDraftFlag();
           },
           onDiscard: () async {
-            await SessionManager.clearSalesDraft();
+            await SessionManager.clearStockAdjustmentDraft();
             setState(() => _hasDraft = false);
           },
         ),
@@ -457,76 +435,14 @@ class _SalesListPageState extends State<SalesListPage> {
           isLoading: _isLoading,
           primary: primary,
           onPrev: _currentPage > 0
-              ? () => _fetchSales(page: _currentPage - 1)
+              ? () => _fetchStockAdjustment(page: _currentPage - 1)
               : null,
           onNext: _currentPage < _totalPages - 1
-              ? () => _fetchSales(page: _currentPage + 1)
+              ? () => _fetchStockAdjustment(page: _currentPage + 1)
               : null,
         ),
       ],
     );
-  }
-
-  Future<void> _onEditTap(SalesListItem item) async {
-    _apiKey = await SessionManager.getApiKey();
-    _companyGUID = await SessionManager.getCompanyGUID();
-    _userSessionID = await SessionManager.getUserSessionID();
-    if (!_hasAccess('SALES_EDIT')) {
-      if (!mounted) return;
-      CommonDialog.ShowNoAccessRightDialog(context);
-      return;
-    }
-    SalesDoc? doc;
-    try {
-      final json = await BaseClient.post(
-        ApiEndpoints.getSales,
-        body: {
-          'apiKey': _apiKey,
-          'companyGUID': _companyGUID,
-          'userID': _userID,
-          'userSessionID': _userSessionID,
-          'docID': item.docID,
-        },
-      );
-      doc = SalesDoc.fromJson(json as Map<String, dynamic>);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(
-            content: Text('Failed to load sales: $e'),
-            behavior: SnackBarBehavior.floating,
-          ));
-      }
-      return;
-    }
-    if (!mounted) return;
-    final updated = await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => SalesFormPage(initialDoc: doc),
-      ),
-    );
-    if (updated == true && mounted) _fetchSales(page: _currentPage);
-  }
-
-  Future<void> _onDeleteTap(SalesListItem item) async {
-    if (!_hasAccess('SALES_DELETE')) {
-      CommonDialog.ShowNoAccessRightDialog(context);
-      return;
-    }
-    final confirmed = await CommonDialog.ConfirmDeleteDialog(context, item.docNo, 'Sales');
-    if (confirmed != true) return;
-    final ok = await _deleteSales(item.docID);
-    if (ok && mounted) {
-      setState(() => _items.removeWhere((e) => e.docID == item.docID));
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(
-          content: Text('Sales deleted'),
-          behavior: SnackBarBehavior.floating,
-        ));
-    }
   }
 
   Widget _buildList({required int start, required int end}) {
@@ -534,78 +450,81 @@ class _SalesListPageState extends State<SalesListPage> {
       onRefresh: _onRefresh,
       child: SlidableAutoCloseBehavior(
         child: ListView.builder(
-        controller: _scrollController,
-        itemCount: _items.length + 1,
-        itemBuilder: (context, i) {
-          if (i == _items.length) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              child: Center(
-                child: Text(
-                  'Showing $start–$end of $_totalCount records',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+          controller: _scrollController,
+          itemCount: _items.length + 1,
+          itemBuilder: (context, i) {
+            if (i == _items.length) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                child: Center(
+                  child: Text(
+                    'Showing $start–$end of $_totalCount records',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.5),
+                    ),
                   ),
                 ),
+              );
+            }
+            final item = _items[i];
+            return Slidable(
+              key: ValueKey(item.docID),
+              endActionPane: ActionPane(
+                motion: const DrawerMotion(),
+                extentRatio: 0.48,
+                 children: [
+                  CustomSlidableAction(
+                          onPressed: (_) => _onEditTap(item),
+                          backgroundColor: const Color(0xFF1565C0).withValues(alpha: 0.12),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: const [
+                              Icon(Icons.edit_outlined, size: 26, color: Color(0xFF1565C0)),
+                              SizedBox(height: 4),
+                              Text('Edit', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1565C0))),
+                            ],
+                          ),
+                        ),
+                  CustomSlidableAction(
+                          onPressed: (_) => _onDeleteTap(item),
+                          backgroundColor: Colors.red.withValues(alpha: 0.12),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: const [
+                              Icon(Icons.delete_outline, size: 26, color: Colors.red),
+                              SizedBox(height: 4),
+                              Text('Delete', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.red)),
+                            ],
+                          ),
+                        ),
+                ],
+               ),
+              child: _StockAdjustmentTile(
+                item: item,
+                dateFmt: _dateFmt,
+                onTap: () async {
+                  final result = await Navigator.push<bool>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => StockAdjustmentDetailPage(item: item),
+                    ),
+                  );
+                  if (result == true && mounted) {
+                    _fetchStockAdjustment(page: _currentPage);
+                  }
+                },
               ),
             );
-          }
-          final item = _items[i];
-          return Slidable(
-            key: ValueKey(item.docID),
-            endActionPane: ActionPane(
-              motion: const DrawerMotion(),
-              extentRatio: 0.48,
-              children: [
-                CustomSlidableAction(
-                  onPressed: (_) => _onEditTap(item),
-                  backgroundColor: const Color(0xFF1565C0).withValues(alpha: 0.12),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: const [
-                      Icon(Icons.edit_outlined, size: 26, color: Color(0xFF1565C0)),
-                      SizedBox(height: 4),
-                      Text('Edit', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1565C0))),
-                    ],
-                  ),
-                ),
-                CustomSlidableAction(
-                  onPressed: (_) => _onDeleteTap(item),
-                  backgroundColor: Colors.red.withValues(alpha: 0.12),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: const [
-                      Icon(Icons.delete_outline, size: 26, color: Colors.red),
-                      SizedBox(height: 4),
-                      Text('Delete', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.red)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            child: _SalesTile(
-              item: item,
-              amtFmt: _amtFmt,
-              dateFmt: _dateFmt,
-              currency: _currency,
-              onTap: () async {
-                final result = await Navigator.push<bool>(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => SalesDetailPage(docID: item.docID),
-                  ),
-                );
-                if (result == true && mounted) _fetchSales(page: _currentPage);
-              },
-            ),
-          );
-        },
-      ),
+          },
+        ),
       ),
     );
   }
-  
+
   Widget _buildError() {
     return Center(
       child: Padding(
@@ -620,7 +539,7 @@ class _SalesListPageState extends State<SalesListPage> {
                     .error
                     .withValues(alpha: 0.6)),
             const SizedBox(height: 14),
-            const Text('Failed to load sales',
+            const Text('Failed to load stock adjustment',
                 style:
                     TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
@@ -634,7 +553,7 @@ class _SalesListPageState extends State<SalesListPage> {
                         .withValues(alpha: 0.4))),
             const SizedBox(height: 16),
             FilledButton.icon(
-              onPressed: () => _fetchSales(page: 0),
+              onPressed: () => _fetchStockAdjustment(page: 0),
               icon: const Icon(Icons.refresh),
               label: const Text('Retry'),
             ),
@@ -651,7 +570,7 @@ class _SalesListPageState extends State<SalesListPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.receipt_outlined,
+            Icon(Icons.receipt_long_outlined,
                 size: 52,
                 color: Theme.of(context)
                     .colorScheme
@@ -661,7 +580,7 @@ class _SalesListPageState extends State<SalesListPage> {
             Text(
               _searchQuery.isNotEmpty
                   ? 'No results for "$_searchQuery"'
-                  : 'No sales found',
+                  : 'No stock adjustment found',
               style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
@@ -675,24 +594,82 @@ class _SalesListPageState extends State<SalesListPage> {
       ),
     );
   }
+
+  Future<void> _onEditTap(StockAdjustmentListItem item) async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
+    if (!_hasAccess('STOCKADJUSTMENT_EDIT')) {
+      if (!mounted) return;
+      CommonDialog.showNoAccessRightDialog(context);
+      return;
+    }
+    StockAdjustmentDoc? doc;
+    try {
+      final json = await BaseClient.post(
+        ApiEndpoints.getQuotation,
+        body: {
+          'apiKey': _apiKey,
+          'companyGUID': _companyGUID,
+          'userID': _userID,
+          'userSessionID': _userSessionID,
+          'docID': item.docID,
+        },
+      );
+      doc = StockAdjustmentDoc.fromJson(json as Map<String, dynamic>);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text('Failed to load stock adjustment: $e'),
+            behavior: SnackBarBehavior.floating,
+          ));
+      }
+      return;
+    }
+    if (!mounted) return;
+    final updated = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StockAdjustmentFormPage(initialDoc: doc),
+      ),
+    );
+    if (updated == true && mounted) _fetchStockAdjustment(page: _currentPage);
+  }
+
+  Future<void> _onDeleteTap(StockAdjustmentListItem item) async {
+    if (!_hasAccess('STOCKADJUSTMENT_DELETE')) {
+      CommonDialog.showNoAccessRightDialog(context);
+      return;
+    }
+    final confirmed = await CommonDialog.confirmDeleteDialog(context, item.docNo, 'Quotation');
+    if (confirmed != true) return;
+    final ok = await _deleteStockAdjustment(item.docID);
+    if (ok && mounted) {
+      setState(() => _items.removeWhere((e) => e.docID == item.docID));
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+          content: Text('Stock Adjustment deleted'),
+          behavior: SnackBarBehavior.floating,
+        ));
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Sales Tile
+// Stock Adjustment Tile
 // ─────────────────────────────────────────────────────────────────────
 
-class _SalesTile extends StatelessWidget {
-  final SalesListItem item;
-  final NumberFormat amtFmt;
+class _StockAdjustmentTile extends StatelessWidget {
+  final StockAdjustmentListItem item;
   final DateFormat dateFmt;
-  final String currency;
   final VoidCallback onTap;
 
-  const _SalesTile({
+  const _StockAdjustmentTile({
     required this.item,
-    required this.amtFmt,
     required this.dateFmt,
-    required this.currency,
     required this.onTap,
   });
 
@@ -700,7 +677,7 @@ class _SalesTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
     final muted =
-        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45);
+        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.65);
 
     DateTime? docDate;
     try {
@@ -734,7 +711,7 @@ class _SalesTile extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
-                Icons.receipt_outlined,
+                Icons.receipt_long_outlined,
                 size: 22,
                 color: item.isVoid ? Colors.red : primary,
               ),
@@ -745,7 +722,7 @@ class _SalesTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Row 1: DocNo + VOID badge | Date
+                  // Row 1: DocNo + badges | Date
                   Row(
                     children: [
                       Text(
@@ -758,46 +735,24 @@ class _SalesTile extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 6),
-                      if (item.isVoid) _VoidBadge(),
+                      if (item.isVoid) StatusBadge.voidBadge(),
                       const Spacer(),
                       Text(
-                        docDate != null ? dateFmt.format(docDate) : item.docDate,
+                        docDate != null
+                            ? dateFmt.format(docDate)
+                            : item.docDate,
                         style: TextStyle(fontSize: 11, color: muted),
                       ),
                     ],
                   ),
                   const SizedBox(height: 4),
-                  // Row 2: Customer name
+                  // Row 2: Location
                   Text(
-                    item.customerName,
-                    style: const TextStyle(
-                        fontSize: 14, fontWeight: FontWeight.w500),
+                    item.location,
+                    style:
+                        const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  // Row 3: Sales agent | Total
-                  Row(
-                    children: [
-                      if ((item.salesAgent ?? '').isNotEmpty) ...[
-                        Icon(Icons.person_outline, size: 12, color: muted),
-                        const SizedBox(width: 3),
-                        Expanded(
-                          child: Text(
-                            item.salesAgent!,
-                            style: TextStyle(fontSize: 12, color: muted),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ] else
-                        const Spacer(),
-                      Text(
-                        '$currency ${amtFmt.format(item.finalTotal)}',
-                        style: const TextStyle(
-                            fontSize: 13, fontWeight: FontWeight.w700),
-                      ),
-                    ],
                   ),
                 ],
               ),
@@ -808,7 +763,6 @@ class _SalesTile extends StatelessWidget {
     );
   }
 }
-
 
 class _DraftBanner extends StatelessWidget {
   final VoidCallback onContinue;
@@ -840,7 +794,7 @@ class _DraftBanner extends StatelessWidget {
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
                         color: primary)),
-                Text('You have a sales in progress.',
+                Text('You have a stock adjustment in progress.',
                     style: TextStyle(
                         fontSize: 11,
                         color: primary.withValues(alpha: 0.7))),
@@ -874,30 +828,10 @@ class _DraftBanner extends StatelessWidget {
   }
 }
 
-class _VoidBadge extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: Colors.red.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: const Text(
-        'VOID',
-        style: TextStyle(
-          fontSize: 9,
-          fontWeight: FontWeight.w800,
-          color: Colors.red,
-          letterSpacing: 0.5,
-        ),
-      ),
-    );
-  }
-}
+
 
 // ─────────────────────────────────────────────────────────────────────
-// Sort bottom sheet
+// Sort Sheet
 // ─────────────────────────────────────────────────────────────────────
 
 class _SortSheet extends StatefulWidget {
@@ -997,8 +931,8 @@ class _SortSheetState extends State<_SortSheet> {
                           horizontal: 12, vertical: 12),
                     ),
                     items: _sortOptions
-                        .map((o) =>
-                            DropdownMenuItem(value: o.$2, child: Text(o.$1)))
+                        .map((o) => DropdownMenuItem(
+                            value: o.$2, child: Text(o.$1)))
                         .toList(),
                     onChanged: (v) => setState(() => _sortBy = v!),
                   ),

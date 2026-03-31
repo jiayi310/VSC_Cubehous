@@ -297,22 +297,6 @@ class SessionManager {
     return v != null && v.isNotEmpty;
   }
 
-  // ── Stock Take Draft ──────────────────────────────────────
-
-  static Future<void> saveStockTakeDraft(String jsonStr) =>
-      _storage.write(key: 'stock_take_draft', value: jsonStr);
-
-  static Future<String?> getStockTakeDraft() =>
-      _storage.read(key: 'stock_take_draft');
-
-  static Future<void> clearStockTakeDraft() =>
-      _storage.delete(key: 'stock_take_draft');
-
-  static Future<bool> hasStockTakeDraft() async {
-    final v = await _storage.read(key: 'stock_take_draft');
-    return v != null && v.isNotEmpty;
-  }
-
   // ── Collection Draft ──────────────────────────────────────
 
   static Future<void> saveCollectionDraft(String jsonStr) =>
@@ -342,6 +326,39 @@ class SessionManager {
 
   static Future<bool> hasSalesDraft() async {
     final v = await _storage.read(key: 'sales_draft');
+    return v != null && v.isNotEmpty;
+  }
+
+
+  // ── Stock Take Draft ──────────────────────────────────────
+
+  static Future<void> saveStockTakeDraft(String jsonStr) =>
+      _storage.write(key: 'stock_take_draft', value: jsonStr);
+
+  static Future<String?> getStockTakeDraft() =>
+      _storage.read(key: 'stock_take_draft');
+
+  static Future<void> clearStockTakeDraft() =>
+      _storage.delete(key: 'stock_take_draft');
+
+  static Future<bool> hasStockTakeDraft() async {
+    final v = await _storage.read(key: 'stock_take_draft');
+    return v != null && v.isNotEmpty;
+  }
+
+ // ── Stock Adjustment Draft ──────────────────────────────────────
+
+  static Future<void> saveStockAdjustmentDraft(String jsonStr) =>
+      _storage.write(key: 'stock_adjustment_draft', value: jsonStr);
+
+  static Future<String?> getStockAdjustmentDraft() =>
+      _storage.read(key: 'stock_adjustment_draft');
+
+  static Future<void> clearStockAdjustmentDraft() =>
+      _storage.delete(key: 'stock_adjustment_draft');
+
+  static Future<bool> hasStockAdjustmentDraft() async {
+    final v = await _storage.read(key: 'stock_adjustment_draft');
     return v != null && v.isNotEmpty;
   }
 }

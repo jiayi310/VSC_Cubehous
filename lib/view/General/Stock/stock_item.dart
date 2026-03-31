@@ -159,7 +159,6 @@ class _StockItemPageState extends State<StockItemPage> {
         if (_scrollController.hasClients) _scrollController.jumpTo(0);
       }
     } catch (e) {
-      print('Error: $e');
       if (mounted) setState(() => _error = 'Failed to load items. Please try again.');
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -995,7 +994,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                             _label('Sort By', primary),
                             const SizedBox(height: 8),
                             DropdownButtonFormField<String>(
-                              value: _sortBy,
+                              initialValue: _sortBy,
                               decoration: InputDecoration(
                                 border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(10)),

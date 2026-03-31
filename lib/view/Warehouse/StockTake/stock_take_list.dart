@@ -1,3 +1,4 @@
+import 'package:cubehous/view/Common/common_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:intl/intl.dart';
@@ -34,36 +35,34 @@ class _StockTakeListPageState extends State<StockTakeListPage> {
   String _userSessionID = '';
   List<String> _accessRights = [];
 
-  // Settings
-  int _itemsPerPage = 20;
-
-  // Data
-  List<StockTakeListItem> _items = [];
-  bool _isLoading = false;
-  String? _error;
-
   // Pagination
+  int _itemsPerPage = 20;
   int _currentPage = 0;
   int _totalPages = 1;
   int _totalCount = 0;
 
-  // Search
+  // Data
+  List<StockTakeListItem> _items = [];
+  bool _isInitialized = false;
+  bool _isLoading = false;
+  bool _hasDraft = false;
+  String? _error;
+
+
+  // Search & sort
   final _searchController = TextEditingController();
   String _searchQuery = '';
-
-  // Sort
-  String _sortBy = 'DocDate';
+  String _sortBy = 'DocNo';
   bool _sortAsc = false;
 
   // Date filter
   DateTime _fromDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
   DateTime _toDate = DateTime.now();
-  final _dateFmt = DateFormat('dd/MM/yyyy');
+  late DateFormat _dateFmt;
 
   final _scrollController = ScrollController();
 
-  int get _activeFilters =>
-      (_sortBy != 'DocDate' ? 1 : 0) + (_sortAsc ? 1 : 0);
+  int get _activeFilters => (_sortBy != 'DocNo' ? 1 : 0) + (!_sortAsc ? 0 : 1);
 
   @override
   void initState() {
@@ -86,6 +85,7 @@ class _StockTakeListPageState extends State<StockTakeListPage> {
       SessionManager.getUserSessionID(),
       SessionManager.getUserAccessRight(),
       SessionManager.getItemsPerPage(),
+      SessionManager.getDateFormat(),
     ]);
     _apiKey = results[0] as String;
     _companyGUID = results[1] as String;
@@ -93,29 +93,26 @@ class _StockTakeListPageState extends State<StockTakeListPage> {
     _userSessionID = results[3] as String;
     _accessRights = results[4] as List<String>;
     _itemsPerPage = results[5] as int;
-    await _fetch(page: 0);
+    final de = results[6] as String;
+    _dateFmt = DateFormat(de);
+    await Future.wait([
+      _fetchStockTake(page: 0),
+      _refreshDraftFlag(),
+    ]);
+    if (mounted) setState(() => _isInitialized = true);
+  }
+
+  Future<void> _refreshDraftFlag() async {
+    final has = await SessionManager.hasStockTakeDraft();
+    if (mounted) setState(() => _hasDraft = has);
   }
 
   bool _hasAccess(String right) => _accessRights.contains(right);
 
-  void _showNoAccessDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Access Denied'),
-        content: const Text(
-            'You do not have the access right to perform this action.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _fetch({required int page}) async {
+  Future<void> _fetchStockTake({required int page}) async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
     if (_isLoading) return;
     setState(() {
       _isLoading = true;
@@ -139,8 +136,7 @@ class _StockTakeListPageState extends State<StockTakeListPage> {
         },
       );
 
-      final result =
-          StockTakeResponse.fromJson(response as Map<String, dynamic>);
+      final result = StockTakeResponse.fromJson(response as Map<String, dynamic>);
       final data = result.data ?? [];
       final totalRecord = result.pagination?.totalRecord ?? data.length;
       final pageSize = result.pagination?.pageSize ?? _itemsPerPage;
@@ -162,211 +158,15 @@ class _StockTakeListPageState extends State<StockTakeListPage> {
     }
   }
 
-  Future<void> _onRefresh() => _fetch(page: 0);
-
   void _onSearchSubmit(String value) {
     setState(() => _searchQuery = value.trim());
-    _fetch(page: 0);
-  }
-
-  Future<void> _pickFromDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _fromDate,
-      firstDate: DateTime(2020),
-      lastDate: _toDate,
-    );
-    if (picked != null) {
-      setState(() => _fromDate = picked);
-      _fetch(page: 0);
-    }
-  }
-
-  Future<void> _pickToDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _toDate,
-      firstDate: _fromDate,
-      lastDate: DateTime(2030),
-    );
-    if (picked != null) {
-      setState(() => _toDate = picked);
-      _fetch(page: 0);
-    }
-  }
-
-  void _showFilterSheet() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _SortSheet(
-        sortBy: _sortBy,
-        sortAsc: _sortAsc,
-        onApply: (sortBy, sortAsc) {
-          setState(() {
-            _sortBy = sortBy;
-            _sortAsc = sortAsc;
-          });
-          _fetch(page: 0);
-        },
-        onReset: () {
-          setState(() {
-            _sortBy = 'DocDate';
-            _sortAsc = false;
-          });
-          _fetch(page: 0);
-        },
-      ),
-    );
-  }
-
-  Future<void> _onEditTap(StockTakeListItem item) async {
-    if (!_hasAccess('STOCKTAKE_EDIT')) {
-      _showNoAccessDialog();
-      return;
-    }
-    try {
-      final response = await BaseClient.post(
-        ApiEndpoints.getStockTake,
-        body: {
-          'apiKey': _apiKey,
-          'companyGUID': _companyGUID,
-          'userID': _userID,
-          'userSessionID': _userSessionID,
-          'docID': item.docID,
-        },
-      );
-      final doc = StockTakeDoc.fromJson(response as Map<String, dynamic>);
-      if (!mounted) return;
-      final result = await Navigator.push<bool>(
-        context,
-        MaterialPageRoute(builder: (_) => StockTakeFormPage(initialDoc: doc)),
-      );
-      if (result == true && mounted) _fetch(page: _currentPage);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(
-            content: Text('Failed to load stock take: $e'),
-            behavior: SnackBarBehavior.floating,
-          ));
-      }
-    }
-  }
-
-  Future<void> _onDeleteTap(StockTakeListItem item) async {
-    if (!_hasAccess('STOCKTAKE_DELETE')) {
-      _showNoAccessDialog();
-      return;
-    }
-    final confirmed = await _confirmDelete(item.docNo);
-    if (confirmed != true) return;
-    final ok = await _deleteStockTake(item.docID);
-    if (ok && mounted) {
-      setState(() => _items.removeWhere((e) => e.docID == item.docID));
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(
-          content: Text('Stock take deleted'),
-          behavior: SnackBarBehavior.floating,
-        ));
-    }
-  }
-
-  Future<bool?> _confirmDelete(String docNo) {
-    return showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        final cs = Theme.of(ctx).colorScheme;
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20)),
-          contentPadding: EdgeInsets.zero,
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 20),
-              Container(
-                width: 80,
-                height: 64,
-                decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha: 0.10),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.delete_outline_rounded,
-                    size: 32, color: Colors.red),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Delete Stock Take',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Text(
-                  'Are you sure you want to delete\n$docNo?',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      fontSize: 13,
-                      color: cs.onSurface.withValues(alpha: 0.6),
-                      height: 1.5),
-                ),
-              ),
-              const SizedBox(height: 24),
-              Divider(height: 1, color: cs.outline.withValues(alpha: 0.15)),
-              IntrinsicHeight(
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextButton(
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.only(
-                                bottomLeft: Radius.circular(20)),
-                          ),
-                        ),
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: Text('Cancel',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: cs.onSurface.withValues(alpha: 0.6))),
-                      ),
-                    ),
-                    VerticalDivider(
-                        width: 1, color: cs.outline.withValues(alpha: 0.15)),
-                    Expanded(
-                      child: TextButton(
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.only(
-                                bottomRight: Radius.circular(20)),
-                          ),
-                        ),
-                        onPressed: () => Navigator.pop(ctx, true),
-                        child: const Text('Delete',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.red)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
+    _fetchStockTake(page: 0);
   }
 
   Future<bool> _deleteStockTake(int docID) async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
     try {
       await BaseClient.post(
         ApiEndpoints.removeStockTake,
@@ -384,7 +184,7 @@ class _StockTakeListPageState extends State<StockTakeListPage> {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
           ..showSnackBar(SnackBar(
-            content: Text('Failed to delete: $e'),
+            content: Text(e is BadRequestException ? e.message : 'Failed to delete: $e'),
             behavior: SnackBarBehavior.floating,
           ));
       }
@@ -392,8 +192,65 @@ class _StockTakeListPageState extends State<StockTakeListPage> {
     }
   }
 
+  Future<void> _onRefresh() => _fetchStockTake(page: 0);
+
+  Future<void> _pickFromDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _fromDate,
+      firstDate: DateTime(2020),
+      lastDate: _toDate,
+    );
+    if (picked != null) {
+      setState(() => _fromDate = picked);
+      _fetchStockTake(page: 0);
+    }
+  }
+
+  Future<void> _pickToDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _toDate,
+      firstDate: _fromDate,
+      lastDate: DateTime(2030),
+    );
+    if (picked != null) {
+      setState(() => _toDate = picked);
+      _fetchStockTake(page: 0);
+    }
+  }
+
+  void _showFilterSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _SortSheet(
+        sortBy: _sortBy,
+        sortAsc: _sortAsc,
+        onApply: (sortBy, sortAsc) {
+          setState(() {
+            _sortBy = sortBy;
+            _sortAsc = sortAsc;
+          });
+          _fetchStockTake(page: 0);
+        },
+        onReset: () {
+          setState(() {
+            _sortBy = 'DocNo';
+            _sortAsc = true;
+          });
+          _fetchStockTake(page: 0);
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (!_isInitialized) {
+      return const Scaffold(body: Center(child: DotsLoading()));
+    }
     final primary = Theme.of(context).colorScheme.primary;
     return Scaffold(
       appBar: AppBar(
@@ -401,37 +258,41 @@ class _StockTakeListPageState extends State<StockTakeListPage> {
             style: TextStyle(fontWeight: FontWeight.w600)),
         centerTitle: true,
         actions: [
-          if (_hasAccess('STOCKTAKE_ADD'))
             IconButton(
-              icon: const Icon(Icons.add),
-              tooltip: 'New Stock Take',
-              onPressed: () async {
-                final result = await Navigator.push<bool>(
-                  context,
-                  MaterialPageRoute(builder: (_) => const StockTakeFormPage()),
-                );
-                if (result == true && mounted) _fetch(page: _currentPage);
-              },
-            ),
+            icon: const Icon(Icons.add),
+            tooltip: 'New Stock Take',
+            onPressed: () async {
+              if (!_hasAccess('STOCKTAKE_ADD')) {
+                CommonDialog.showNoAccessRightDialog(context);
+                return;
+              }
+              final created = await Navigator.push<bool>(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const StockTakeFormPage()),
+              );
+              if (created == true) _fetchStockTake(page: 0);
+              _refreshDraftFlag();
+            },
+          ),
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(104),
           child: Column(
             children: [
+              // Date range row
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
                 child: Row(
                   children: [
-                    Expanded(
-                        child: DatePill(
+                    Expanded(child: DatePill(
                       label: 'From',
                       date: _dateFmt.format(_fromDate),
                       onTap: _pickFromDate,
                       primary: primary,
                     )),
                     const SizedBox(width: 8),
-                    Expanded(
-                        child: DatePill(
+                    Expanded(child: DatePill(
                       label: 'To',
                       date: _dateFmt.format(_toDate),
                       onTap: _pickToDate,
@@ -440,7 +301,8 @@ class _StockTakeListPageState extends State<StockTakeListPage> {
                   ],
                 ),
               ),
-              const SizedBox(height: 3),
+              SizedBox(height: 3),
+              // Search + filter row
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
                 child: Row(
@@ -452,20 +314,19 @@ class _StockTakeListPageState extends State<StockTakeListPage> {
                         onSubmitted: _onSearchSubmit,
                         onChanged: (v) => setState(() {}),
                         decoration: InputDecoration(
-                          hintText: 'Search stock takes...',
+                          hintText: 'Search stock take...',
                           suffixIcon: _searchController.text.isNotEmpty
                               ? IconButton(
                                   icon: const Icon(Icons.clear, size: 18),
                                   onPressed: () {
                                     _searchController.clear();
                                     setState(() => _searchQuery = '');
-                                    _fetch(page: 0);
+                                    _fetchStockTake(page: 0);
                                   },
                                 )
                               : null,
                           isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(
-                              vertical: 10, horizontal: 12),
+                          contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                             borderSide: BorderSide.none,
@@ -475,10 +336,9 @@ class _StockTakeListPageState extends State<StockTakeListPage> {
                       ),
                     ),
                     const SizedBox(width: 8),
+                    // Search button
                     Material(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .surfaceContainerHighest,
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(12),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(12),
@@ -491,13 +351,12 @@ class _StockTakeListPageState extends State<StockTakeListPage> {
                       ),
                     ),
                     const SizedBox(width: 8),
+                    // Filter button
                     Stack(
                       alignment: Alignment.center,
                       children: [
                         Material(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surfaceContainerHighest,
+                          color: Theme.of(context).colorScheme.surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(12),
                           child: InkWell(
                             borderRadius: BorderRadius.circular(12),
@@ -528,11 +387,11 @@ class _StockTakeListPageState extends State<StockTakeListPage> {
                                       color: Colors.white,
                                       fontWeight: FontWeight.bold),
                                 ),
+                                ),
                               ),
                             ),
-                          ),
-                      ],
-                    ),
+                        ],
+                      ),
                   ],
                 ),
               ),
@@ -552,6 +411,20 @@ class _StockTakeListPageState extends State<StockTakeListPage> {
     final end = ((_currentPage + 1) * _itemsPerPage).clamp(0, _totalCount);
     return Column(
       children: [
+        if (_hasDraft) _DraftBanner(
+          onContinue: () async {
+            await Navigator.push<bool>(
+              context,
+              MaterialPageRoute(builder: (_) => const StockTakeFormPage()),
+            );
+            _fetchStockTake(page: 0);
+            _refreshDraftFlag();
+          },
+          onDiscard: () async {
+            await SessionManager.clearStockTakeDraft();
+            setState(() => _hasDraft = false);
+          },
+        ),
         if (_items.isEmpty)
           Expanded(child: _buildEmpty())
         else
@@ -562,10 +435,10 @@ class _StockTakeListPageState extends State<StockTakeListPage> {
           isLoading: _isLoading,
           primary: primary,
           onPrev: _currentPage > 0
-              ? () => _fetch(page: _currentPage - 1)
+              ? () => _fetchStockTake(page: _currentPage - 1)
               : null,
           onNext: _currentPage < _totalPages - 1
-              ? () => _fetch(page: _currentPage + 1)
+              ? () => _fetchStockTake(page: _currentPage + 1)
               : null,
         ),
       ],
@@ -600,48 +473,36 @@ class _StockTakeListPageState extends State<StockTakeListPage> {
             final item = _items[i];
             return Slidable(
               key: ValueKey(item.docID),
-              endActionPane: (_hasAccess('STOCKTAKE_EDIT') || _hasAccess('STOCKTAKE_DELETE'))
-                  ? ActionPane(
-                      motion: const DrawerMotion(),
-                      extentRatio: (_hasAccess('STOCKTAKE_EDIT') && _hasAccess('STOCKTAKE_DELETE')) ? 0.48 : 0.26,
-                      children: [
-                        if (_hasAccess('STOCKTAKE_EDIT'))
-                          CustomSlidableAction(
-                            onPressed: (_) => _onEditTap(item),
-                            backgroundColor: Colors.blue.withValues(alpha: 0.12),
-                            child: const Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.edit_outlined, size: 26, color: Colors.blue),
-                                SizedBox(height: 4),
-                                Text('Edit',
-                                    style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.blue)),
-                              ],
-                            ),
+              endActionPane: ActionPane(
+                motion: const DrawerMotion(),
+                extentRatio: 0.48,
+                 children: [
+                  CustomSlidableAction(
+                          onPressed: (_) => _onEditTap(item),
+                          backgroundColor: const Color(0xFF1565C0).withValues(alpha: 0.12),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: const [
+                              Icon(Icons.edit_outlined, size: 26, color: Color(0xFF1565C0)),
+                              SizedBox(height: 4),
+                              Text('Edit', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1565C0))),
+                            ],
                           ),
-                        if (_hasAccess('STOCKTAKE_DELETE'))
-                          CustomSlidableAction(
-                            onPressed: (_) => _onDeleteTap(item),
-                            backgroundColor: Colors.red.withValues(alpha: 0.12),
-                            child: const Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.delete_outline, size: 26, color: Colors.red),
-                                SizedBox(height: 4),
-                                Text('Delete',
-                                    style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.red)),
-                              ],
-                            ),
+                        ),
+                  CustomSlidableAction(
+                          onPressed: (_) => _onDeleteTap(item),
+                          backgroundColor: Colors.red.withValues(alpha: 0.12),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: const [
+                              Icon(Icons.delete_outline, size: 26, color: Colors.red),
+                              SizedBox(height: 4),
+                              Text('Delete', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.red)),
+                            ],
                           ),
-                      ],
-                    )
-                  : null,
+                        ),
+                ],
+               ),
               child: _StockTakeTile(
                 item: item,
                 dateFmt: _dateFmt,
@@ -653,7 +514,7 @@ class _StockTakeListPageState extends State<StockTakeListPage> {
                     ),
                   );
                   if (result == true && mounted) {
-                    _fetch(page: _currentPage);
+                    _fetchStockTake(page: _currentPage);
                   }
                 },
               ),
@@ -678,7 +539,7 @@ class _StockTakeListPageState extends State<StockTakeListPage> {
                     .error
                     .withValues(alpha: 0.6)),
             const SizedBox(height: 14),
-            const Text('Failed to load stock takes',
+            const Text('Failed to load stock take',
                 style:
                     TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
@@ -692,7 +553,7 @@ class _StockTakeListPageState extends State<StockTakeListPage> {
                         .withValues(alpha: 0.4))),
             const SizedBox(height: 16),
             FilledButton.icon(
-              onPressed: () => _fetch(page: 0),
+              onPressed: () => _fetchStockTake(page: 0),
               icon: const Icon(Icons.refresh),
               label: const Text('Retry'),
             ),
@@ -709,7 +570,7 @@ class _StockTakeListPageState extends State<StockTakeListPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.inventory_2_outlined,
+            Icon(Icons.receipt_long_outlined,
                 size: 52,
                 color: Theme.of(context)
                     .colorScheme
@@ -719,7 +580,7 @@ class _StockTakeListPageState extends State<StockTakeListPage> {
             Text(
               _searchQuery.isNotEmpty
                   ? 'No results for "$_searchQuery"'
-                  : 'No stock takes found',
+                  : 'No stock take found',
               style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
@@ -732,6 +593,68 @@ class _StockTakeListPageState extends State<StockTakeListPage> {
         ),
       ),
     );
+  }
+
+  Future<void> _onEditTap(StockTakeListItem item) async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
+    if (!_hasAccess('STOCKTAKE_EDIT')) {
+      if (!mounted) return;
+      CommonDialog.showNoAccessRightDialog(context);
+      return;
+    }
+    StockTakeDoc? doc;
+    try {
+      final json = await BaseClient.post(
+        ApiEndpoints.getQuotation,
+        body: {
+          'apiKey': _apiKey,
+          'companyGUID': _companyGUID,
+          'userID': _userID,
+          'userSessionID': _userSessionID,
+          'docID': item.docID,
+        },
+      );
+      doc = StockTakeDoc.fromJson(json as Map<String, dynamic>);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text('Failed to load stock take: $e'),
+            behavior: SnackBarBehavior.floating,
+          ));
+      }
+      return;
+    }
+    if (!mounted) return;
+    final updated = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StockTakeFormPage(initialDoc: doc),
+      ),
+    );
+    if (updated == true && mounted) _fetchStockTake(page: _currentPage);
+  }
+
+  Future<void> _onDeleteTap(StockTakeListItem item) async {
+    if (!_hasAccess('STOCKTAKE_DELETE')) {
+      CommonDialog.showNoAccessRightDialog(context);
+      return;
+    }
+    final confirmed = await CommonDialog.confirmDeleteDialog(context, item.docNo, 'Quotation');
+    if (confirmed != true) return;
+    final ok = await _deleteStockTake(item.docID);
+    if (ok && mounted) {
+      setState(() => _items.removeWhere((e) => e.docID == item.docID));
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+          content: Text('Stock Take deleted'),
+          behavior: SnackBarBehavior.floating,
+        ));
+    }
   }
 }
 
@@ -777,6 +700,7 @@ class _StockTakeTile extends StatelessWidget {
         ),
         child: Row(
           children: [
+            // Doc icon
             Container(
               width: 44,
               height: 44,
@@ -787,12 +711,13 @@ class _StockTakeTile extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
-                Icons.fact_check_outlined,
+                Icons.receipt_long_outlined,
                 size: 22,
                 color: item.isVoid ? Colors.red : primary,
               ),
             ),
             const SizedBox(width: 14),
+            // Content
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -846,6 +771,72 @@ class _StockTakeTile extends StatelessWidget {
     );
   }
 }
+
+class _DraftBanner extends StatelessWidget {
+  final VoidCallback onContinue;
+  final VoidCallback onDiscard;
+
+  const _DraftBanner({required this.onContinue, required this.onDiscard});
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: primary.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.edit_note_rounded, size: 22, color: primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Unsaved Draft',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: primary)),
+                Text('You have a stock take in progress.',
+                    style: TextStyle(
+                        fontSize: 11,
+                        color: primary.withValues(alpha: 0.7))),
+              ],
+            ),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: primary,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            onPressed: onDiscard,
+            child: const Text('Discard', style: TextStyle(fontSize: 12)),
+          ),
+          const SizedBox(width: 4),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+            ),
+            onPressed: onContinue,
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
 
 // ─────────────────────────────────────────────────────────────────────
 // Sort Sheet
@@ -939,7 +930,7 @@ class _SortSheetState extends State<_SortSheet> {
                           color: primary)),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
-                    value: _sortBy,
+                    initialValue: _sortBy,
                     decoration: InputDecoration(
                       border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10)),

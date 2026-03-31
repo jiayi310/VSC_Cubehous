@@ -3,27 +3,22 @@ import 'package:cubehous/view/Common/common_dialog.dart';
 import 'package:cubehous/view/Common/decoration.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:open_filex/open_filex.dart';
-import 'dart:io';
 import 'dart:convert';
-import '../../api/api_endpoints.dart';
-import '../../api/base_client.dart';
-import '../../common/dots_loading.dart';
-import '../../common/session_manager.dart';
-import '../../models/quotation.dart';
-import 'quotation_form.dart';
-import 'sales_form.dart';
+import '../../../api/api_endpoints.dart';
+import '../../../api/base_client.dart';
+import '../../../common/dots_loading.dart';
+import '../../../common/session_manager.dart';
+import '../../../models/sales.dart';
 
-class QuotationDetailPage extends StatefulWidget {
+class SalesDetailPage extends StatefulWidget {
   final int docID;
-  const QuotationDetailPage({super.key, required this.docID});
+  const SalesDetailPage({super.key, required this.docID});
 
   @override
-  State<QuotationDetailPage> createState() => _QuotationDetailPageState();
+  State<SalesDetailPage> createState() => _SalesDetailPageState();
 }
 
-class _QuotationDetailPageState extends State<QuotationDetailPage>
+class _SalesDetailPageState extends State<SalesDetailPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
 
@@ -33,16 +28,15 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
   String _userSessionID = '';
   List<String> _accessRights = [];
 
-  QuotationDoc? _doc;
+  SalesDoc? _doc;
   bool _loading = true;
-  bool _pdfLoading = false;
   String? _error;
   String _imageMode = 'show';
 
   late String _currency = '';
   late NumberFormat _amtFmt;
   late NumberFormat _qtyFmt;
-  late DateFormat _dateFmt;
+  late DateFormat _dateFmt = DateFormat('dd MM yyyy');
 
   @override
   void initState() {
@@ -68,6 +62,7 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
       SessionManager.getSalesDecimalPoint(),
       SessionManager.getQuantityDecimalPoint(),
       SessionManager.getCurrencySymbol(),
+      SessionManager.getDateFormat(),
     ]);
     _apiKey = results[0] as String;
     _companyGUID = results[1] as String;
@@ -80,59 +75,18 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
     final dp2 = results[7] as int;
     _qtyFmt = NumberFormat('#,##0.${'0' * dp2}');
     _currency = results[8] as String;
+    final dF = results[9] as String;
+    _dateFmt = DateFormat(dF);
     await _loadDoc();
     if (_imageMode == 'show') _loadImages();
   }
 
-  Future<void> _downloadPdf() async {
-    _apiKey = await SessionManager.getApiKey();
-    _companyGUID = await SessionManager.getCompanyGUID();
-    _userSessionID = await SessionManager.getUserSessionID();
-    setState(() => _pdfLoading = true);
-    try {
-      final bytes = await BaseClient.postBytes(
-        ApiEndpoints.getQuotationReport,
-        body: {
-          'apiKey': _apiKey,
-          'companyGUID': _companyGUID,
-          'userID': _userID,
-          'userSessionID': _userSessionID,
-          'docID': widget.docID.toString(),
-        },
-      );
-
-      Directory dir;
-      if (Platform.isAndroid) {
-        dir = (await getExternalStorageDirectory()) ?? await getTemporaryDirectory();
-      } else {
-        dir = await getApplicationDocumentsDirectory();
-      }
-
-      final timestamp = DateFormat('yyyyMMddHHmmss').format(DateTime.now());
-      final fileName = '${timestamp}_${_doc!.docNo.replaceAll('/', '-')}.pdf';
-      final file = File('${dir.path}/$fileName');
-      await file.writeAsBytes(bytes);
-      await OpenFilex.open(file.path);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(
-            content: Text('Failed to download PDF: $e'),
-            behavior: SnackBarBehavior.floating,
-          ));
-      }
-    } finally {
-      if (mounted) setState(() => _pdfLoading = false);
-    }
-  }
-
   Future<void> _deleteDoc() async {
-    if (!_accessRights.contains('QUOTATION_DELETE')){
-      CommonDialog.ShowNoAccessRightDialog(context);
+    if (!_accessRights.contains('SALES_DELETE')) {
+      CommonDialog.showNoAccessRightDialog(context);
       return;
     }
-    final confirmed = await CommonDialog.ConfirmDeleteDialog(context, _doc!.docNo, 'Quotation');
+    final confirmed = await CommonDialog.confirmDeleteDialog(context, _doc!.docNo, 'Sales Order');
     if (confirmed != true) return;
 
     _apiKey = await SessionManager.getApiKey();
@@ -141,7 +95,7 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
 
     try {
       await BaseClient.post(
-        ApiEndpoints.removeQuotation,
+        ApiEndpoints.removeSales,
         body: {
           'apiKey': _apiKey,
           'companyGUID': _companyGUID,
@@ -154,7 +108,7 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(const SnackBar(
-          content: Text('Quotation deleted'),
+          content: Text('Sales order deleted'),
           behavior: SnackBarBehavior.floating,
         ));
       Navigator.pop(context, true);
@@ -172,10 +126,10 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
 
   Future<void> _loadImages() async {
     if (_doc == null) return;
-    final lines = _doc!.quotationDetails;
+    final lines = _doc!.salesDetails;
     if (lines.isEmpty) return;
 
-    final linesByStockId = <int, List<QuotationDetailLine>>{};
+    final linesByStockId = <int, List<SalesDetailLine>>{};
     for (final line in lines) {
       linesByStockId.putIfAbsent(line.stockID, () => []).add(line);
     }
@@ -213,7 +167,7 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
     });
     try {
       final json = await BaseClient.post(
-        ApiEndpoints.getQuotation,
+        ApiEndpoints.getSales,
         body: {
           'apiKey': _apiKey,
           'companyGUID': _companyGUID,
@@ -223,7 +177,7 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
         },
       );
       setState(() {
-        _doc = QuotationDoc.fromJson(json as Map<String, dynamic>);
+        _doc = SalesDoc.fromJson(json as Map<String, dynamic>);
         _loading = false;
       });
     } catch (e) {
@@ -239,7 +193,7 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          _doc?.docNo ?? 'Quotation',
+          _doc?.docNo ?? 'Sales Order',
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
         centerTitle: true,
@@ -267,87 +221,29 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
               ),
             ),
           if (_doc != null)
-            _pdfLoading
-                ? const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
-                  )
-                : PopupMenuButton<String>(
-                    onSelected: (value) async {
-                      switch (value) {
-                        case 'edit':
-                          if (!_accessRights.contains('QUOTATION_EDIT')) {
-                            CommonDialog.ShowNoAccessRightDialog(context);
-                            return;
-                          }
-                          final updated = await Navigator.push<bool>(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => QuotationFormPage(initialDoc: _doc),
-                            ),
-                          );
-                          if (updated == true && mounted) await _loadDoc();
-                        case 'transfer':
-                          if (!_accessRights.contains('QUOTATION_TRANSFERSALES')) {
-                            CommonDialog.ShowNoAccessRightDialog(context);
-                            return;
-                          }
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => SalesFormPage(fromQuotation: _doc),
-                            ),
-                          );
-                        case 'pdf':
-                          _downloadPdf();
-                        case 'delete':
-                          if (!_accessRights.contains('QUOTATION_DELETE')) {
-                            CommonDialog.ShowNoAccessRightDialog(context);
-                            return;
-                          }
-                          _deleteDoc();
-                      }
-                    },
-                    itemBuilder: (_) => [
-                      const PopupMenuItem(
-                        value: 'edit',
-                        child: ListTile(
-                          leading: Icon(Icons.edit_outlined),
-                          title: Text('Edit'),
-                          contentPadding: EdgeInsets.zero,
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      ),
-                      if (!_doc!.isVoid)
-                        const PopupMenuItem(
-                          value: 'transfer',
-                          child: ListTile(
-                            leading: Icon(Icons.swap_horiz_rounded),
-                            title: Text('Transfer to Sales'),
-                            contentPadding: EdgeInsets.zero,
-                            visualDensity: VisualDensity.compact,
-                          ),
-                        ),
-                      const PopupMenuItem(
-                        value: 'pdf',
-                        child: ListTile(
-                          leading: Icon(Icons.picture_as_pdf_outlined),
-                          title: Text('Download PDF'),
-                          contentPadding: EdgeInsets.zero,
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      ),
-                      const PopupMenuItem(
-                        value: 'delete',
-                        child: ListTile(
-                          leading: Icon(Icons.delete_outline, color: Colors.red),
-                          title: Text('Delete', style: TextStyle(color: Colors.red)),
-                          contentPadding: EdgeInsets.zero,
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      ),
-                    ],
+            PopupMenuButton<String>(
+              onSelected: (value) async {
+                switch (value) {
+                  case 'delete':
+                    if (!_accessRights.contains('SALES_DELETE')) {
+                      CommonDialog.showNoAccessRightDialog(context);
+                      return;
+                    }
+                    _deleteDoc();
+                }
+              },
+              itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: ListTile(
+                    leading: Icon(Icons.delete_outline, color: Colors.red),
+                    title: Text('Delete', style: TextStyle(color: Colors.red)),
+                    contentPadding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
                   ),
+                ),
+              ],
+            ),
         ],
         bottom: _loading || _error != null
             ? null
@@ -407,24 +303,51 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
 
   // ── Totals summary bar ───────────────────────────────────────────────
 
-  Widget _buildTotalsBar(QuotationDoc doc) {
+  Widget _buildTotalsBar(SalesDoc doc) {
     final primary = Theme.of(context).colorScheme.primary;
     final cs = Theme.of(context).colorScheme;
     return Container(
       color: cs.surfaceContainerLow,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Text('Total Amt',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: primary)),
-          const Spacer(),
-          Text(
-            '$_currency ${_amtFmt.format(doc.finalTotal)}',
-            style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                color: primary),
+          Row(
+            children: [
+              Text('Total Amt',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: primary)),
+              const Spacer(),
+              Text(
+                '$_currency ${_amtFmt.format(doc.finalTotal)}',
+                style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: primary),
+              ),
+            ],
           ),
+          if (doc.outstanding > 0) ...[
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Paid: $_currency ${_amtFmt.format(doc.paymentTotal)}',
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: cs.onSurface.withValues(alpha: 0.6),
+                      fontWeight: FontWeight.w500),
+                ),
+                Text(
+                  'Outstanding: $_currency ${_amtFmt.format(doc.outstanding)}',
+                  style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.orange,
+                      fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -432,7 +355,7 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
 
   // ── Info tab ──────────────────────────────────────────────────────
 
-  Widget _buildInfoTab(QuotationDoc doc) {
+  Widget _buildInfoTab(SalesDoc doc) {
     DateTime? docDate;
     try {
       docDate = DateTime.parse(doc.docDate);
@@ -448,23 +371,36 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
         DetailDetailRow(label: 'Sales Agent', value: doc.salesAgent ?? '-'),
         DetailDetailRow(label: 'Description', value: doc.description ?? '-'),
         DetailDetailRow(label: 'Remark', value: doc.remark ?? '-'),
-        DetailDetailRow(label: 'Shipping', value: doc.shippingMethodDescription!),
-        SizedBox(height: 10),
-        DetailSectionHeader(title: 'CUSTOMER'),
-        DetailDetailRow(label: 'Code', value: doc.customerCode),
-        DetailDetailRow(label: 'Name', value: doc.customerName),
-        SizedBox(height: 10),
+        if ((doc.qtDocNo ?? '').isNotEmpty)
+          DetailDetailRow(label: 'Quotation Ref', value: doc.qtDocNo!),
+        if ((doc.shippingMethodDescription ?? '').isNotEmpty)
+          DetailDetailRow(label: 'Shipping', value: doc.shippingMethodDescription!),
+        if (doc.isPicking || doc.isPacking)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Row(
+              children: [
+                if (doc.isPicking)
+                  _StatusChip(label: 'Picking', color: Colors.blue),
+                if (doc.isPicking && doc.isPacking)
+                  const SizedBox(width: 8),
+                if (doc.isPacking)
+                  _StatusChip(label: 'Packing', color: Colors.purple),
+              ],
+            ),
+          ),
+        const SizedBox(height: 10),
         DetailSectionHeader(title: 'TOTAL'),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Column(
             children: [
               DetailTotalPriceSummaryRow(
-                label: 'Subtotal', 
-                value: _amtFmt.format(doc.subtotal), 
+                label: 'Subtotal',
+                value: _amtFmt.format(doc.subtotal),
                 muted: muted),
               Builder(builder: (_) {
-                final discAmt = doc.quotationDetails.fold(0.0, (s, l) => s + l.qty * l.unitPrice * l.discount / 100);
+                final discAmt = doc.salesDetails.fold(0.0, (s, l) => s + l.qty * l.unitPrice * l.discount / 100);
                 return DetailTotalPriceSummaryRow(
                   label: 'Discount',
                   value: '- ${_amtFmt.format(discAmt)}',
@@ -474,20 +410,22 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
               }),
               if (doc.taxAmt != 0)
                 DetailTotalPriceSummaryRow(
-                  label: 'Tax Amt', 
-                  value: _amtFmt.format(doc.taxAmt), 
+                  label: 'Tax Amt',
+                  value: _amtFmt.format(doc.taxAmt),
                   muted: muted,
                   valueColor: doc.taxAmt == 0 ? muted : Mycolor.taxTextColor),
               if (doc.taxableAmt != 0)
-                DetailTotalPriceSummaryRow(label: 'Taxable Amt', value: _amtFmt.format(doc.taxableAmt), muted: muted, valueColor: muted),
-              
+                DetailTotalPriceSummaryRow(
+                  label: 'Taxable Amt',
+                  value: _amtFmt.format(doc.taxableAmt),
+                  muted: muted,
+                  valueColor: muted),
               const Divider(height: 5),
               DetailTotalPriceSummaryRow(
-                  label: 'Total Amt ($_currency)', 
-                  value: _amtFmt.format(doc.finalTotal), 
-                  muted: muted,
-                  valueColor: doc.taxAmt == 0 ? muted : Mycolor.primary),
-  
+                label: 'Total Amt ($_currency)',
+                value: _amtFmt.format(doc.finalTotal),
+                muted: muted,
+                valueColor: doc.taxAmt == 0 ? muted : Mycolor.primary),
             ],
           ),
         ),
@@ -496,10 +434,40 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
     );
   }
 
+  // ── Customer tab ──────────────────────────────────────────────────────
+
+  Widget _buildCustomerTab(SalesDoc doc) {
+    final billingLines = [doc.address1, doc.address2, doc.address3, doc.address4]
+        .where((l) => (l ?? '').isNotEmpty).cast<String>().toList();
+    final deliveryLines = [doc.deliverAddr1, doc.deliverAddr2, doc.deliverAddr3, doc.deliverAddr4]
+        .where((l) => (l ?? '').isNotEmpty).cast<String>().toList();
+
+    return ListView(
+      children: [
+        DetailSectionHeader(title: 'CUSTOMER'),
+        DetailDetailRow(label: 'Code', value: doc.customerCode),
+        DetailDetailRow(label: 'Name', value: doc.customerName),
+        if (billingLines.isNotEmpty)
+          DetailAddressRow(label: 'Billing Address', lines: billingLines),
+        if (deliveryLines.isNotEmpty)
+          DetailAddressRow(label: 'Delivery Address', lines: deliveryLines),
+        if ((doc.attention ?? '').isNotEmpty)
+          DetailDetailRow(label: 'Attention', value: doc.attention!),
+        if ((doc.phone ?? '').isNotEmpty)
+          DetailDetailRow(label: 'Phone', value: doc.phone!),
+        if ((doc.fax ?? '').isNotEmpty)
+          DetailDetailRow(label: 'Fax', value: doc.fax!),
+        if ((doc.email ?? '').isNotEmpty)
+          DetailDetailRow(label: 'Email', value: doc.email!),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
   // ── Items tab ────────────────────────────────────────────────────────
 
-  Widget _buildItemsTab(QuotationDoc doc) {
-    if (doc.quotationDetails.isEmpty) {
+  Widget _buildItemsTab(SalesDoc doc) {
+    if (doc.salesDetails.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
@@ -533,56 +501,26 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
     return _imageMode == 'show'
         ? ListView.separated(
             padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-            itemCount: doc.quotationDetails.length,
+            itemCount: doc.salesDetails.length,
             separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: (_, i) => _ItemGridCard(
-              line: doc.quotationDetails[i],
+              line: doc.salesDetails[i],
               amtFmt: _amtFmt,
               qtyFmt: _qtyFmt,
               primary: primary,
-              image: doc.quotationDetails[i].image,
+              image: doc.salesDetails[i].image,
             ),
           )
         : ListView.builder(
             padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-            itemCount: doc.quotationDetails.length,
+            itemCount: doc.salesDetails.length,
             itemBuilder: (_, i) => _ItemTile(
               index: i,
-              line: doc.quotationDetails[i],
+              line: doc.salesDetails[i],
               salesFmt: _amtFmt,
               qtyFmt: _qtyFmt,
             ),
           );
-  }
-
-  // ── Customer tab ──────────────────────────────────────────────────────
-
-  Widget _buildCustomerTab(QuotationDoc doc) {
-    final billingLines = [doc.address1, doc.address2, doc.address3, doc.address4]
-        .where((l) => (l ?? '').isNotEmpty).cast<String>().toList();
-    final deliveryLines = [doc.deliverAddr1, doc.deliverAddr2, doc.deliverAddr3, doc.deliverAddr4]
-        .where((l) => (l ?? '').isNotEmpty).cast<String>().toList();
-
-    return ListView(
-      children: [
-        DetailSectionHeader(title: 'CUSTOMER'),
-        DetailDetailRow(label: 'Code', value: doc.customerCode),
-        DetailDetailRow(label: 'Name', value: doc.customerName),
-        if (billingLines.isNotEmpty)
-          DetailAddressRow(label: 'Billing Address', lines: billingLines),
-        if (deliveryLines.isNotEmpty)
-          DetailAddressRow(label: 'Delivery Address', lines: deliveryLines),
-        if ((doc.attention ?? '').isNotEmpty)
-          DetailDetailRow(label: 'Attention', value: doc.attention!),
-        if ((doc.phone ?? '').isNotEmpty)
-          DetailDetailRow(label: 'Phone', value: doc.phone!),
-        if ((doc.fax ?? '').isNotEmpty)
-          DetailDetailRow(label: 'Fax', value: doc.fax!),
-        if ((doc.email ?? '').isNotEmpty)
-          DetailDetailRow(label: 'Email', value: doc.email!),
-        const SizedBox(height: 16),
-      ],
-    );
   }
 
   Widget _buildError() {
@@ -599,9 +537,8 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
                     .error
                     .withValues(alpha: 0.6)),
             const SizedBox(height: 14),
-            const Text('Failed to load quotation',
-                style:
-                    TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+            const Text('Failed to load sales order',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             Text(_error ?? '',
                 textAlign: TextAlign.center,
@@ -625,12 +562,12 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Item tile
+// Item tile (no image mode)
 // ─────────────────────────────────────────────────────────────────────
 
 class _ItemTile extends StatefulWidget {
   final int index;
-  final QuotationDetailLine line;
+  final SalesDetailLine line;
   final NumberFormat salesFmt;
   final NumberFormat qtyFmt;
 
@@ -792,18 +729,18 @@ class _ItemTileState extends State<_ItemTile> {
                           height: 1,
                           color: cs.outline.withValues(alpha: 0.2)),
                       const SizedBox(height: 8),
-                      BreakdownRow(
+                      breakdownRow(
                           'UnitPrice',
                           salesFmt.format(line.unitPrice),
                           cs),
                       const SizedBox(height: 3),
-                      BreakdownRow(
+                      breakdownRow(
                           'Subtotal',
                           salesFmt.format(line.qty * line.unitPrice),
                           cs),
                       if (discAmt > 0) ...[
                         const SizedBox(height: 3),
-                        BreakdownRow(
+                        breakdownRow(
                             'Discount (${_fmtNum(line.discount)}%)',
                             '- ${salesFmt.format(discAmt)}',
                             cs,
@@ -811,7 +748,7 @@ class _ItemTileState extends State<_ItemTile> {
                       ],
                       if ((line.taxCode ?? '').isNotEmpty) ...[
                         const SizedBox(height: 3),
-                        BreakdownRow(
+                        breakdownRow(
                             'Tax (${_fmtNum(line.taxRate)}%)',
                             '+ ${salesFmt.format(line.taxAmt)}',
                             cs,
@@ -830,11 +767,11 @@ class _ItemTileState extends State<_ItemTile> {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Item grid card (shown when display mode = Show Image)
+// Item grid card (shown when image mode = show)
 // ─────────────────────────────────────────────────────────────────────
 
 class _ItemGridCard extends StatefulWidget {
-  final QuotationDetailLine line;
+  final SalesDetailLine line;
   final NumberFormat amtFmt;
   final NumberFormat qtyFmt;
   final Color primary;
@@ -1072,3 +1009,28 @@ class _ItemImage extends StatelessWidget {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Picking/Packing status chip
+// ─────────────────────────────────────────────────────────────────────
+
+class _StatusChip extends StatelessWidget {
+  final String label;
+  final Color color;
+  const _StatusChip({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+            fontSize: 11, fontWeight: FontWeight.w700, color: color),
+      ),
+    );
+  }
+}

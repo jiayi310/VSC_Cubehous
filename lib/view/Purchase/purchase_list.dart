@@ -972,7 +972,7 @@ class _SortSheetState extends State<_SortSheet> {
                           color: primary)),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
-                    value: _sortBy,
+                    initialValue: _sortBy,
                     decoration: InputDecoration(
                       border: OutlineInputBorder(
                           borderRadius:

@@ -26,9 +26,26 @@ class ApiEndpoints {
   static const String removeQuotation = '/Quotation/RemoveQuotation';
   static const String getQuotationReport = '/Report/GetQuotationReport';
 
+  // ── Analysis ───────────────────────────────────
+  static const String getSalesByDateRange = '/Sales/GetSalesByCompanyIdAndDateRange';
+  static const String getTotalSalesCount = '/Sales/GetTotalSalesCount';
+  static const String getTotalPackingCount = '/Packing/GetTotalPackingCount';
+  static const String getStockValue = '/Stock/GetStockValue';
+  static const String getTop10SalesQtyByStock = '/Sales/GetTop10SalesQtybyStock';
+  static const String getTop10SalesAmtByCustomer = '/Sales/GetTop10SalesAmtByCustomer';
+  static const String getTop10Agent = '/Sales/GetTop10Agent';
+  static const String getTop10StockInbound = '/Receiving/GetTop10StockInboundByCompanyId';
+  static const String getTop10StockOutbound = '/Packing/GetTop10StockOutboundByCompanyId';
+
+  // ── Reports ────────────────────────────────────
+  static const String getOutstandingSalesList = '/Sales/GetOutstandingSalesListByCompanyId';
+  static const String getSalesDtlListingReport = '/Report/GetSalesDtlListingReport';
+  static const String getSalesOutstandingListReport = '/Report/GetSalesOutstandingListReport';
+
   // ── Sales ──────────────────────────────────────
   static const String getSalesList = '/Sales/GetSalesListByCompanyId';
   static const String getSalesListForCollect = '/Sales/GetSalesListAvailableForCollect';
+  static const String getSalesListAvailableForPacking = '/Sales/GetSalesListAvailableForPacking';
   static const String getSales = '/Sales/GetSales';
   static const String createSales = '/Sales/CreateSales';
   static const String updateSales = '/Sales/UpdateSales';
@@ -105,6 +122,14 @@ class ApiEndpoints {
   static const String updateStockTake = '/StockTake/UpdateStockTake';
   static const String removeStockTake = '/StockTake/RemoveStockTake';
   static const String getStockTakeReport = '/Report/GetStockTakeReport';
+
+  // ── Stock Adjustment ──────────────────────────────────
+  static const String getStockAdjustmentList = '/StockAdjustment/GetStockAdjustmentListByCompanyId';
+  static const String getStockAdjustment = '/StockAdjustment/GetStockAdjustment';
+  static const String createStockAdjustment = '/StockAdjustment/CreateStockAdjustment';
+  static const String updateStockAdjustment = '/StockTake/UpdateStockAdjustment';
+  static const String removeStockAdjustment = '/StockAdjustment/RemoveAdjustment';
+  static const String getStockAdjustmentReport = '/Report/GetStockAdjustmentReport';
 
   // ── Stock Filter Options ────────────────────────
   static const String getStockGroupList = '/StockGroup/GetStockGroupListByCompanyId';

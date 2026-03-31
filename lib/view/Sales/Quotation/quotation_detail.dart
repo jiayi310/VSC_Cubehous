@@ -3,22 +3,26 @@ import 'package:cubehous/view/Common/common_dialog.dart';
 import 'package:cubehous/view/Common/decoration.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'dart:convert';
-import '../../api/api_endpoints.dart';
-import '../../api/base_client.dart';
-import '../../common/dots_loading.dart';
-import '../../common/session_manager.dart';
-import '../../models/sales.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_filex/open_filex.dart';
+import 'dart:io';
+import '../../../api/api_endpoints.dart';
+import '../../../api/base_client.dart';
+import '../../../common/dots_loading.dart';
+import '../../../common/session_manager.dart';
+import '../../../models/quotation.dart';
+import 'quotation_form.dart';
+import '../Sales/sales_form.dart';
 
-class SalesDetailPage extends StatefulWidget {
+class QuotationDetailPage extends StatefulWidget {
   final int docID;
-  const SalesDetailPage({super.key, required this.docID});
+  const QuotationDetailPage({super.key, required this.docID});
 
   @override
-  State<SalesDetailPage> createState() => _SalesDetailPageState();
+  State<QuotationDetailPage> createState() => _QuotationDetailPageState();
 }
 
-class _SalesDetailPageState extends State<SalesDetailPage>
+class _QuotationDetailPageState extends State<QuotationDetailPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
 
@@ -28,15 +32,16 @@ class _SalesDetailPageState extends State<SalesDetailPage>
   String _userSessionID = '';
   List<String> _accessRights = [];
 
-  SalesDoc? _doc;
+  QuotationDoc? _doc;
   bool _loading = true;
+  bool _pdfLoading = false;
   String? _error;
   String _imageMode = 'show';
 
   late String _currency = '';
   late NumberFormat _amtFmt;
   late NumberFormat _qtyFmt;
-  final DateFormat _dateFmt = DateFormat('dd MMM yyyy');
+  late DateFormat _dateFmt = DateFormat('dd MM yyyy');
 
   @override
   void initState() {
@@ -62,6 +67,7 @@ class _SalesDetailPageState extends State<SalesDetailPage>
       SessionManager.getSalesDecimalPoint(),
       SessionManager.getQuantityDecimalPoint(),
       SessionManager.getCurrencySymbol(),
+      SessionManager.getDateFormat(),
     ]);
     _apiKey = results[0] as String;
     _companyGUID = results[1] as String;
@@ -74,16 +80,61 @@ class _SalesDetailPageState extends State<SalesDetailPage>
     final dp2 = results[7] as int;
     _qtyFmt = NumberFormat('#,##0.${'0' * dp2}');
     _currency = results[8] as String;
+    final dF = results[9] as String;
+    _dateFmt = DateFormat(dF);
     await _loadDoc();
     if (_imageMode == 'show') _loadImages();
   }
 
+  Future<void> _downloadPdf() async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
+    setState(() => _pdfLoading = true);
+    try {
+      final bytes = await BaseClient.postBytes(
+        ApiEndpoints.getQuotationReport,
+        body: {
+          'apiKey': _apiKey,
+          'companyGUID': _companyGUID,
+          'userID': _userID,
+          'userSessionID': _userSessionID,
+          'docID': widget.docID.toString(),
+        },
+      );
+
+      Directory dir;
+      if (Platform.isAndroid) {
+        dir = (await getExternalStorageDirectory()) ?? await getTemporaryDirectory();
+      } else {
+        dir = await getApplicationDocumentsDirectory();
+      }
+
+      final timestamp = DateFormat('yyyyMMddHHmmss').format(DateTime.now());
+      final fileName = '${timestamp}_${_doc!.docNo.replaceAll('/', '-')}.pdf';
+      final file = File('${dir.path}/$fileName');
+      await file.writeAsBytes(bytes);
+      await OpenFilex.open(file.path);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text('Failed to download PDF: $e'),
+            behavior: SnackBarBehavior.floating,
+          ));
+      }
+    } finally {
+      if (mounted) setState(() => _pdfLoading = false);
+    }
+  }
+
   Future<void> _deleteDoc() async {
-    if (!_accessRights.contains('SALES_DELETE')) {
-      CommonDialog.ShowNoAccessRightDialog(context);
+    if (!_accessRights.contains('QUOTATION_DELETE')){
+      CommonDialog.showNoAccessRightDialog(context);
       return;
     }
-    final confirmed = await CommonDialog.ConfirmDeleteDialog(context, _doc!.docNo, 'Sales Order');
+    final confirmed = await CommonDialog.confirmDeleteDialog(context, _doc!.docNo, 'Quotation');
     if (confirmed != true) return;
 
     _apiKey = await SessionManager.getApiKey();
@@ -92,7 +143,7 @@ class _SalesDetailPageState extends State<SalesDetailPage>
 
     try {
       await BaseClient.post(
-        ApiEndpoints.removeSales,
+        ApiEndpoints.removeQuotation,
         body: {
           'apiKey': _apiKey,
           'companyGUID': _companyGUID,
@@ -105,7 +156,7 @@ class _SalesDetailPageState extends State<SalesDetailPage>
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(const SnackBar(
-          content: Text('Sales order deleted'),
+          content: Text('Quotation deleted'),
           behavior: SnackBarBehavior.floating,
         ));
       Navigator.pop(context, true);
@@ -123,10 +174,10 @@ class _SalesDetailPageState extends State<SalesDetailPage>
 
   Future<void> _loadImages() async {
     if (_doc == null) return;
-    final lines = _doc!.salesDetails;
+    final lines = _doc!.quotationDetails;
     if (lines.isEmpty) return;
 
-    final linesByStockId = <int, List<SalesDetailLine>>{};
+    final linesByStockId = <int, List<QuotationDetailLine>>{};
     for (final line in lines) {
       linesByStockId.putIfAbsent(line.stockID, () => []).add(line);
     }
@@ -164,7 +215,7 @@ class _SalesDetailPageState extends State<SalesDetailPage>
     });
     try {
       final json = await BaseClient.post(
-        ApiEndpoints.getSales,
+        ApiEndpoints.getQuotation,
         body: {
           'apiKey': _apiKey,
           'companyGUID': _companyGUID,
@@ -174,7 +225,7 @@ class _SalesDetailPageState extends State<SalesDetailPage>
         },
       );
       setState(() {
-        _doc = SalesDoc.fromJson(json as Map<String, dynamic>);
+        _doc = QuotationDoc.fromJson(json as Map<String, dynamic>);
         _loading = false;
       });
     } catch (e) {
@@ -190,7 +241,7 @@ class _SalesDetailPageState extends State<SalesDetailPage>
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          _doc?.docNo ?? 'Sales Order',
+          _doc?.docNo ?? 'Quotation',
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
         centerTitle: true,
@@ -218,29 +269,87 @@ class _SalesDetailPageState extends State<SalesDetailPage>
               ),
             ),
           if (_doc != null)
-            PopupMenuButton<String>(
-              onSelected: (value) async {
-                switch (value) {
-                  case 'delete':
-                    if (!_accessRights.contains('SALES_DELETE')) {
-                      CommonDialog.ShowNoAccessRightDialog(context);
-                      return;
-                    }
-                    _deleteDoc();
-                }
-              },
-              itemBuilder: (_) => [
-                const PopupMenuItem(
-                  value: 'delete',
-                  child: ListTile(
-                    leading: Icon(Icons.delete_outline, color: Colors.red),
-                    title: Text('Delete', style: TextStyle(color: Colors.red)),
-                    contentPadding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
+            _pdfLoading
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+                  )
+                : PopupMenuButton<String>(
+                    onSelected: (value) async {
+                      switch (value) {
+                        case 'edit':
+                          if (!_accessRights.contains('QUOTATION_EDIT')) {
+                            CommonDialog.showNoAccessRightDialog(context);
+                            return;
+                          }
+                          final updated = await Navigator.push<bool>(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => QuotationFormPage(initialDoc: _doc),
+                            ),
+                          );
+                          if (updated == true && mounted) await _loadDoc();
+                        case 'transfer':
+                          if (!_accessRights.contains('QUOTATION_TRANSFERSALES')) {
+                            CommonDialog.showNoAccessRightDialog(context);
+                            return;
+                          }
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => SalesFormPage(fromQuotation: _doc),
+                            ),
+                          );
+                        case 'pdf':
+                          _downloadPdf();
+                        case 'delete':
+                          if (!_accessRights.contains('QUOTATION_DELETE')) {
+                            CommonDialog.showNoAccessRightDialog(context);
+                            return;
+                          }
+                          _deleteDoc();
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(
+                        value: 'edit',
+                        child: ListTile(
+                          leading: Icon(Icons.edit_outlined),
+                          title: Text('Edit'),
+                          contentPadding: EdgeInsets.zero,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                      if (!_doc!.isVoid)
+                        const PopupMenuItem(
+                          value: 'transfer',
+                          child: ListTile(
+                            leading: Icon(Icons.swap_horiz_rounded),
+                            title: Text('Transfer to Sales'),
+                            contentPadding: EdgeInsets.zero,
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
+                      const PopupMenuItem(
+                        value: 'pdf',
+                        child: ListTile(
+                          leading: Icon(Icons.picture_as_pdf_outlined),
+                          title: Text('Download PDF'),
+                          contentPadding: EdgeInsets.zero,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'delete',
+                        child: ListTile(
+                          leading: Icon(Icons.delete_outline, color: Colors.red),
+                          title: Text('Delete', style: TextStyle(color: Colors.red)),
+                          contentPadding: EdgeInsets.zero,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            ),
         ],
         bottom: _loading || _error != null
             ? null
@@ -300,51 +409,24 @@ class _SalesDetailPageState extends State<SalesDetailPage>
 
   // ── Totals summary bar ───────────────────────────────────────────────
 
-  Widget _buildTotalsBar(SalesDoc doc) {
+  Widget _buildTotalsBar(QuotationDoc doc) {
     final primary = Theme.of(context).colorScheme.primary;
     final cs = Theme.of(context).colorScheme;
     return Container(
       color: cs.surfaceContainerLow,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
         children: [
-          Row(
-            children: [
-              Text('Total Amt',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: primary)),
-              const Spacer(),
-              Text(
-                '$_currency ${_amtFmt.format(doc.finalTotal)}',
-                style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: primary),
-              ),
-            ],
+          Text('Total Amt',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: primary)),
+          const Spacer(),
+          Text(
+            '$_currency ${_amtFmt.format(doc.finalTotal)}',
+            style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: primary),
           ),
-          if (doc.outstanding > 0) ...[
-            const SizedBox(height: 4),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Paid: $_currency ${_amtFmt.format(doc.paymentTotal)}',
-                  style: TextStyle(
-                      fontSize: 12,
-                      color: cs.onSurface.withValues(alpha: 0.6),
-                      fontWeight: FontWeight.w500),
-                ),
-                Text(
-                  'Outstanding: $_currency ${_amtFmt.format(doc.outstanding)}',
-                  style: const TextStyle(
-                      fontSize: 12,
-                      color: Colors.orange,
-                      fontWeight: FontWeight.w600),
-                ),
-              ],
-            ),
-          ],
         ],
       ),
     );
@@ -352,7 +434,7 @@ class _SalesDetailPageState extends State<SalesDetailPage>
 
   // ── Info tab ──────────────────────────────────────────────────────
 
-  Widget _buildInfoTab(SalesDoc doc) {
+  Widget _buildInfoTab(QuotationDoc doc) {
     DateTime? docDate;
     try {
       docDate = DateTime.parse(doc.docDate);
@@ -368,36 +450,23 @@ class _SalesDetailPageState extends State<SalesDetailPage>
         DetailDetailRow(label: 'Sales Agent', value: doc.salesAgent ?? '-'),
         DetailDetailRow(label: 'Description', value: doc.description ?? '-'),
         DetailDetailRow(label: 'Remark', value: doc.remark ?? '-'),
-        if ((doc.qtDocNo ?? '').isNotEmpty)
-          DetailDetailRow(label: 'Quotation Ref', value: doc.qtDocNo!),
-        if ((doc.shippingMethodDescription ?? '').isNotEmpty)
-          DetailDetailRow(label: 'Shipping', value: doc.shippingMethodDescription!),
-        if (doc.isPicking || doc.isPacking)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: Row(
-              children: [
-                if (doc.isPicking)
-                  _StatusChip(label: 'Picking', color: Colors.blue),
-                if (doc.isPicking && doc.isPacking)
-                  const SizedBox(width: 8),
-                if (doc.isPacking)
-                  _StatusChip(label: 'Packing', color: Colors.purple),
-              ],
-            ),
-          ),
-        const SizedBox(height: 10),
+        DetailDetailRow(label: 'Shipping', value: doc.shippingMethodDescription!),
+        SizedBox(height: 10),
+        DetailSectionHeader(title: 'CUSTOMER'),
+        DetailDetailRow(label: 'Code', value: doc.customerCode),
+        DetailDetailRow(label: 'Name', value: doc.customerName),
+        SizedBox(height: 10),
         DetailSectionHeader(title: 'TOTAL'),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Column(
             children: [
               DetailTotalPriceSummaryRow(
-                label: 'Subtotal',
-                value: _amtFmt.format(doc.subtotal),
+                label: 'Subtotal', 
+                value: _amtFmt.format(doc.subtotal), 
                 muted: muted),
               Builder(builder: (_) {
-                final discAmt = doc.salesDetails.fold(0.0, (s, l) => s + l.qty * l.unitPrice * l.discount / 100);
+                final discAmt = doc.quotationDetails.fold(0.0, (s, l) => s + l.qty * l.unitPrice * l.discount / 100);
                 return DetailTotalPriceSummaryRow(
                   label: 'Discount',
                   value: '- ${_amtFmt.format(discAmt)}',
@@ -407,22 +476,20 @@ class _SalesDetailPageState extends State<SalesDetailPage>
               }),
               if (doc.taxAmt != 0)
                 DetailTotalPriceSummaryRow(
-                  label: 'Tax Amt',
-                  value: _amtFmt.format(doc.taxAmt),
+                  label: 'Tax Amt', 
+                  value: _amtFmt.format(doc.taxAmt), 
                   muted: muted,
                   valueColor: doc.taxAmt == 0 ? muted : Mycolor.taxTextColor),
               if (doc.taxableAmt != 0)
-                DetailTotalPriceSummaryRow(
-                  label: 'Taxable Amt',
-                  value: _amtFmt.format(doc.taxableAmt),
-                  muted: muted,
-                  valueColor: muted),
+                DetailTotalPriceSummaryRow(label: 'Taxable Amt', value: _amtFmt.format(doc.taxableAmt), muted: muted, valueColor: muted),
+              
               const Divider(height: 5),
               DetailTotalPriceSummaryRow(
-                label: 'Total Amt ($_currency)',
-                value: _amtFmt.format(doc.finalTotal),
-                muted: muted,
-                valueColor: doc.taxAmt == 0 ? muted : Mycolor.primary),
+                  label: 'Total Amt ($_currency)', 
+                  value: _amtFmt.format(doc.finalTotal), 
+                  muted: muted,
+                  valueColor: doc.taxAmt == 0 ? muted : Mycolor.primary),
+  
             ],
           ),
         ),
@@ -431,40 +498,10 @@ class _SalesDetailPageState extends State<SalesDetailPage>
     );
   }
 
-  // ── Customer tab ──────────────────────────────────────────────────────
-
-  Widget _buildCustomerTab(SalesDoc doc) {
-    final billingLines = [doc.address1, doc.address2, doc.address3, doc.address4]
-        .where((l) => (l ?? '').isNotEmpty).cast<String>().toList();
-    final deliveryLines = [doc.deliverAddr1, doc.deliverAddr2, doc.deliverAddr3, doc.deliverAddr4]
-        .where((l) => (l ?? '').isNotEmpty).cast<String>().toList();
-
-    return ListView(
-      children: [
-        DetailSectionHeader(title: 'CUSTOMER'),
-        DetailDetailRow(label: 'Code', value: doc.customerCode),
-        DetailDetailRow(label: 'Name', value: doc.customerName),
-        if (billingLines.isNotEmpty)
-          DetailAddressRow(label: 'Billing Address', lines: billingLines),
-        if (deliveryLines.isNotEmpty)
-          DetailAddressRow(label: 'Delivery Address', lines: deliveryLines),
-        if ((doc.attention ?? '').isNotEmpty)
-          DetailDetailRow(label: 'Attention', value: doc.attention!),
-        if ((doc.phone ?? '').isNotEmpty)
-          DetailDetailRow(label: 'Phone', value: doc.phone!),
-        if ((doc.fax ?? '').isNotEmpty)
-          DetailDetailRow(label: 'Fax', value: doc.fax!),
-        if ((doc.email ?? '').isNotEmpty)
-          DetailDetailRow(label: 'Email', value: doc.email!),
-        const SizedBox(height: 16),
-      ],
-    );
-  }
-
   // ── Items tab ────────────────────────────────────────────────────────
 
-  Widget _buildItemsTab(SalesDoc doc) {
-    if (doc.salesDetails.isEmpty) {
+  Widget _buildItemsTab(QuotationDoc doc) {
+    if (doc.quotationDetails.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
@@ -498,26 +535,56 @@ class _SalesDetailPageState extends State<SalesDetailPage>
     return _imageMode == 'show'
         ? ListView.separated(
             padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-            itemCount: doc.salesDetails.length,
+            itemCount: doc.quotationDetails.length,
             separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: (_, i) => _ItemGridCard(
-              line: doc.salesDetails[i],
+              line: doc.quotationDetails[i],
               amtFmt: _amtFmt,
               qtyFmt: _qtyFmt,
               primary: primary,
-              image: doc.salesDetails[i].image,
+              image: doc.quotationDetails[i].image,
             ),
           )
         : ListView.builder(
             padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-            itemCount: doc.salesDetails.length,
+            itemCount: doc.quotationDetails.length,
             itemBuilder: (_, i) => _ItemTile(
               index: i,
-              line: doc.salesDetails[i],
+              line: doc.quotationDetails[i],
               salesFmt: _amtFmt,
               qtyFmt: _qtyFmt,
             ),
           );
+  }
+
+  // ── Customer tab ──────────────────────────────────────────────────────
+
+  Widget _buildCustomerTab(QuotationDoc doc) {
+    final billingLines = [doc.address1, doc.address2, doc.address3, doc.address4]
+        .where((l) => (l ?? '').isNotEmpty).cast<String>().toList();
+    final deliveryLines = [doc.deliverAddr1, doc.deliverAddr2, doc.deliverAddr3, doc.deliverAddr4]
+        .where((l) => (l ?? '').isNotEmpty).cast<String>().toList();
+
+    return ListView(
+      children: [
+        DetailSectionHeader(title: 'CUSTOMER'),
+        DetailDetailRow(label: 'Code', value: doc.customerCode),
+        DetailDetailRow(label: 'Name', value: doc.customerName),
+        if (billingLines.isNotEmpty)
+          DetailAddressRow(label: 'Billing Address', lines: billingLines),
+        if (deliveryLines.isNotEmpty)
+          DetailAddressRow(label: 'Delivery Address', lines: deliveryLines),
+        if ((doc.attention ?? '').isNotEmpty)
+          DetailDetailRow(label: 'Attention', value: doc.attention!),
+        if ((doc.phone ?? '').isNotEmpty)
+          DetailDetailRow(label: 'Phone', value: doc.phone!),
+        if ((doc.fax ?? '').isNotEmpty)
+          DetailDetailRow(label: 'Fax', value: doc.fax!),
+        if ((doc.email ?? '').isNotEmpty)
+          DetailDetailRow(label: 'Email', value: doc.email!),
+        const SizedBox(height: 16),
+      ],
+    );
   }
 
   Widget _buildError() {
@@ -534,8 +601,9 @@ class _SalesDetailPageState extends State<SalesDetailPage>
                     .error
                     .withValues(alpha: 0.6)),
             const SizedBox(height: 14),
-            const Text('Failed to load sales order',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+            const Text('Failed to load quotation',
+                style:
+                    TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             Text(_error ?? '',
                 textAlign: TextAlign.center,
@@ -559,12 +627,12 @@ class _SalesDetailPageState extends State<SalesDetailPage>
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Item tile (no image mode)
+// Item tile
 // ─────────────────────────────────────────────────────────────────────
 
 class _ItemTile extends StatefulWidget {
   final int index;
-  final SalesDetailLine line;
+  final QuotationDetailLine line;
   final NumberFormat salesFmt;
   final NumberFormat qtyFmt;
 
@@ -726,18 +794,18 @@ class _ItemTileState extends State<_ItemTile> {
                           height: 1,
                           color: cs.outline.withValues(alpha: 0.2)),
                       const SizedBox(height: 8),
-                      BreakdownRow(
+                      breakdownRow(
                           'UnitPrice',
                           salesFmt.format(line.unitPrice),
                           cs),
                       const SizedBox(height: 3),
-                      BreakdownRow(
+                      breakdownRow(
                           'Subtotal',
                           salesFmt.format(line.qty * line.unitPrice),
                           cs),
                       if (discAmt > 0) ...[
                         const SizedBox(height: 3),
-                        BreakdownRow(
+                        breakdownRow(
                             'Discount (${_fmtNum(line.discount)}%)',
                             '- ${salesFmt.format(discAmt)}',
                             cs,
@@ -745,7 +813,7 @@ class _ItemTileState extends State<_ItemTile> {
                       ],
                       if ((line.taxCode ?? '').isNotEmpty) ...[
                         const SizedBox(height: 3),
-                        BreakdownRow(
+                        breakdownRow(
                             'Tax (${_fmtNum(line.taxRate)}%)',
                             '+ ${salesFmt.format(line.taxAmt)}',
                             cs,
@@ -764,11 +832,11 @@ class _ItemTileState extends State<_ItemTile> {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Item grid card (shown when image mode = show)
+// Item grid card (shown when display mode = Show Image)
 // ─────────────────────────────────────────────────────────────────────
 
 class _ItemGridCard extends StatefulWidget {
-  final SalesDetailLine line;
+  final QuotationDetailLine line;
   final NumberFormat amtFmt;
   final NumberFormat qtyFmt;
   final Color primary;
@@ -823,7 +891,7 @@ class _ItemGridCardState extends State<_ItemGridCard> {
       child: SizedBox(
         width: 50,
         height: 50,
-        child: _ItemImage(base64: widget.image),
+        child: ItemImage(base64: widget.image),
       ),
     );
 
@@ -980,54 +1048,5 @@ class _ItemGridCardState extends State<_ItemGridCard> {
   }
 }
 
-class _ItemImage extends StatelessWidget {
-  final String? base64;
-  const _ItemImage({this.base64});
 
-  @override
-  Widget build(BuildContext context) {
-    if (base64 != null && base64!.isNotEmpty) {
-      try {
-        final raw = base64!.contains(',') ? base64!.split(',').last : base64!;
-        final bytes = base64Decode(raw);
-        return Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true);
-      } catch (_) {}
-    }
-    return Container(
-      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
-      child: Center(
-        child: Icon(
-          Icons.inventory_2_outlined,
-          size: 32,
-          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
-        ),
-      ),
-    );
-  }
-}
 
-// ─────────────────────────────────────────────────────────────────────
-// Picking/Packing status chip
-// ─────────────────────────────────────────────────────────────────────
-
-class _StatusChip extends StatelessWidget {
-  final String label;
-  final Color color;
-  const _StatusChip({required this.label, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-            fontSize: 11, fontWeight: FontWeight.w700, color: color),
-      ),
-    );
-  }
-}

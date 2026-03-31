@@ -13,8 +13,9 @@ class StockTakeDetailLine {
   final int locationID;
   final int storageID;
   final String storageCode;
+  String? image;
 
-  const StockTakeDetailLine({
+  StockTakeDetailLine({
     this.dtlID = 0,
     this.docID = 0,
     this.stockID = 0,
@@ -27,6 +28,7 @@ class StockTakeDetailLine {
     this.locationID = 0,
     this.storageID = 0,
     this.storageCode = '',
+    this.image,
   });
 
   factory StockTakeDetailLine.fromJson(Map<String, dynamic> json) =>

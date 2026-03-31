@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 /// Standard filled input decoration used across all form pages.
@@ -92,7 +94,7 @@ class FormTotalPriceSummaryRow extends StatelessWidget {
   final String value;
   final Color muted;
   final Color? valueColor;
-  const FormTotalPriceSummaryRow({required this.label, required this.value, required this.muted, this.valueColor});
+  const FormTotalPriceSummaryRow({super.key, required this.label, required this.value, required this.muted, this.valueColor});
 
   @override
   Widget build(BuildContext context) {
@@ -120,7 +122,7 @@ class FormTotalPriceSummaryRow extends StatelessWidget {
 
 class FieldLabel extends StatelessWidget {
   final String label;
-  const FieldLabel({required this.label});
+  const FieldLabel({super.key, required this.label});
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.only(bottom: 6),
@@ -136,7 +138,7 @@ class FieldLabel extends StatelessWidget {
 
 class FieldBox extends StatelessWidget {
   final Widget child;
-  const FieldBox({required this.child});
+  const FieldBox({super.key, required this.child});
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -153,7 +155,7 @@ class FieldBox extends StatelessWidget {
 
 class SheetSection extends StatelessWidget {
   final String label;
-  const SheetSection({required this.label});
+  const SheetSection({super.key, required this.label});
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -172,6 +174,7 @@ class SheetField extends StatelessWidget {
   final String hint;
   final TextInputType inputType;
   const SheetField({
+    super.key,
     required this.ctrl,
     required this.hint,
     this.inputType = TextInputType.text,
@@ -212,7 +215,7 @@ class SheetField extends StatelessWidget {
 
 class DetailSectionHeader extends StatelessWidget {
   final String title;
-  const DetailSectionHeader({required this.title});
+  const DetailSectionHeader({super.key, required this.title});
 
   @override
   Widget build(BuildContext context) {
@@ -235,7 +238,7 @@ class DetailDetailRow extends StatelessWidget {
   final String label;
   final String value;
 
-  const DetailDetailRow({required this.label, required this.value});
+  const DetailDetailRow({super.key, required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
@@ -285,7 +288,7 @@ class DetailTotalPriceSummaryRow extends StatelessWidget {
   final String value;
   final Color muted;
   final Color? valueColor;
-  const DetailTotalPriceSummaryRow({required this.label, required this.value, required this.muted, this.valueColor});
+  const DetailTotalPriceSummaryRow({super.key, required this.label, required this.value, required this.muted, this.valueColor});
 
   @override
   Widget build(BuildContext context) {
@@ -307,7 +310,7 @@ class ItemBreakdownRow extends StatelessWidget {
   final String value;
   final Color muted;
   final Color? valueColor;
-  const ItemBreakdownRow({required this.label, required this.value, required this.muted, this.valueColor});
+  const ItemBreakdownRow({super.key, required this.label, required this.value, required this.muted, this.valueColor});
 
   @override
   Widget build(BuildContext context) {
@@ -333,7 +336,7 @@ class ItemBreakdownRow extends StatelessWidget {
 class DetailAddressRow extends StatelessWidget {
   final String label;
   final List<String> lines;
-  const DetailAddressRow({required this.label, required this.lines});
+  const DetailAddressRow({super.key, required this.label, required this.lines});
 
   @override
   Widget build(BuildContext context) {
@@ -363,6 +366,55 @@ class DetailAddressRow extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class VoidBadge extends StatelessWidget {
+  const VoidBadge({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.red.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: const Text(
+        'VOID',
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w800,
+          color: Colors.red,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+}
+
+class ItemImage extends StatelessWidget {
+  final String? base64;
+  const ItemImage({super.key, this.base64});
+
+  @override
+  Widget build(BuildContext context) {
+    if (base64 != null && base64!.isNotEmpty) {
+      try {
+        final raw = base64!.contains(',') ? base64!.split(',').last : base64!;
+        final bytes = base64Decode(raw);
+        return Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true);
+      } catch (_) {}
+    }
+    return Container(
+      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
+      child: Center(
+        child: Icon(
+          Icons.inventory_2_outlined,
+          size: 32,
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
+        ),
       ),
     );
   }
@@ -478,7 +530,7 @@ Widget stepBtn(BuildContext context, IconData icon, VoidCallback onTap) {
   );
 }
 
-Widget BreakdownRow(String label, String value, ColorScheme cs,
+Widget breakdownRow(String label, String value, ColorScheme cs,
       {Color? valueColor}) =>
       Row(
         children: [

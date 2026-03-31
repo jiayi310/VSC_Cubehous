@@ -5,49 +5,19 @@ import 'package:cubehous/models/sales_agent.dart';
 import 'package:cubehous/view/Common/customer_picker_page.dart';
 import 'package:cubehous/view/Common/decoration.dart';
 import 'package:cubehous/view/Common/sales_agent_picker_page.dart';
-import 'package:cubehous/view/Sales/collection_form_sales_picker.dart';
+import 'package:cubehous/view/Sales/Collection/collection_form_sales_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
-import '../../api/api_endpoints.dart';
-import '../../api/base_client.dart';
-import '../../common/dots_loading.dart';
-import '../../common/session_manager.dart';
-import '../../models/collection.dart';
-import '../../models/sales.dart';
-import '../../models/customer.dart';
-
-// ─────────────────────────────────────────────────────────────────────
-// Helper class for selected sales order with editable payment amount
-// ─────────────────────────────────────────────────────────────────────
-
-class _SelectedOrder {
-  final SalesListItem sale;
-  final TextEditingController paymentAmtCtrl;
-  final int collectMappingID;
-
-  _SelectedOrder(this.sale)
-      : paymentAmtCtrl =
-            TextEditingController(text: sale.outstanding.toStringAsFixed(2)),
-        collectMappingID = 0;
-
-  _SelectedOrder.fromMapping(
-    this.sale, {
-    required double paymentAmt,
-    required this.collectMappingID,
-  }) : paymentAmtCtrl =
-            TextEditingController(text: paymentAmt.toStringAsFixed(2));
-
-  void dispose() => paymentAmtCtrl.dispose();
-
-  double get paymentAmt => double.tryParse(paymentAmtCtrl.text) ?? 0;
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Collection Form Page
-// ─────────────────────────────────────────────────────────────────────
+import '../../../api/api_endpoints.dart';
+import '../../../api/base_client.dart';
+import '../../../common/dots_loading.dart';
+import '../../../common/session_manager.dart';
+import '../../../models/collection.dart';
+import '../../../models/sales.dart';
+import '../../../models/customer.dart';
 
 class CollectionFormPage extends StatefulWidget {
   final CollectionDoc? initialDoc;
@@ -81,11 +51,10 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
   String? _selectedPaymentType;
   List<PaymentTypeItem> _paymentTypes = [];
   bool _loadingPaymentTypes = true;
-  bool _paymentTypesError = false;
   bool _loadingDropdowns = true;
  
   // Selected orders
-  final List<_SelectedOrder> _selectedOrders = [];
+  final List<CollectionSelectedSales> _selectedOrders = [];
 
   // Photo
   String? _imageBase64;
@@ -184,7 +153,6 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
       if (mounted) {
         setState(() {
           _loadingPaymentTypes = false;
-          _paymentTypesError = true;
           _loadingDropdowns = false;
         });
       }
@@ -288,7 +256,7 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
       );
       final paymentAmt = double.tryParse(m['paymentAmt'] as String? ?? '') ?? sale.outstanding;
       final collectMappingID = (m['collectMappingID'] as int?) ?? 0;
-      _selectedOrders.add(_SelectedOrder.fromMapping(
+      _selectedOrders.add(CollectionSelectedSales.fromMapping(
         sale,
         paymentAmt: paymentAmt,
         collectMappingID: collectMappingID,
@@ -302,11 +270,10 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
     _paymentTotalCtrl.addListener(_distributePayment);
   }
   
-
   void _initFromDoc(CollectionDoc doc) {
-    try {
-      _docDate = DateTime.parse(doc.docDate);
-    } catch (_) {}
+    _editDocID = doc.docID;
+    _editDocNo = doc.docNo;
+    _docDate = DateTime.tryParse(doc.docDate) ?? DateTime.now();
 
     _selectedCustomer = Customer(
       customerID: doc.customerID,
@@ -344,7 +311,7 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
         remark: null,
         isVoid: false,
       );
-      _selectedOrders.add(_SelectedOrder.fromMapping(
+      _selectedOrders.add(CollectionSelectedSales.fromMapping(
         sale,
         paymentAmt: m.editPaymentAmt,
         collectMappingID: m.collectMappingID,
@@ -516,7 +483,7 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
         }
         _selectedOrders.clear();
         for (final sale in result) {
-          _selectedOrders.add(existing[sale.docID] ?? _SelectedOrder(sale));
+          _selectedOrders.add(existing[sale.docID] ?? CollectionSelectedSales(sale));
         }
       });
       final currentTotal = double.tryParse(_paymentTotalCtrl.text) ?? 0;
@@ -643,11 +610,12 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
           _refNoCtrl.text.trim().isEmpty ? null : _refNoCtrl.text.trim();
 
       if (_isEdit) {
-        final doc = widget.initialDoc!;
+        final docID = _isEditMode ? _editDocID : 0;
+        final docNo = _isEditMode ? _editDocNo : '';
         final collectMappings = _selectedOrders
             .map((o) => {
-                  'collectMappingID': o.collectMappingID,
-                  'collectDocID': doc.docID,
+                  'collectMappingID': _isEditMode ? o.collectMappingID : 0,
+                  'collectDocID': docID,
                   'paymentAmt': o.paymentAmt,
                   'salesDocID': o.sale.docID,
                   'salesDocNo': o.sale.docNo,
@@ -667,8 +635,8 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
             'userID': _userID,
             'userSessionID': _userSessionID,
             'collectionForm': {
-              'docID': doc.docID,
-              'docNo': doc.docNo,
+              'docID': docID,
+              'docNo': docNo,
               'docDate': _docDate.toIso8601String(),
               'customerID': c.customerID,
               'customerCode': c.customerCode,
@@ -949,7 +917,7 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
                                           child: Center(child: DotsLoading(dotSize: 5)))
                                     else
                                       DropdownButtonFormField<String>(
-                                        value: _selectedPaymentType,
+                                        initialValue: _selectedPaymentType,
                                         decoration: formInputDeco(context),
                                         items: _paymentTypes
                                             .map((pt) => DropdownMenuItem(
@@ -1104,7 +1072,7 @@ class _CollectionFormPageState extends State<CollectionFormPage> {
   // ── Sales order card ─────────────────────────────────────────────────
 
   Widget _buildSalesOrderCard(
-      _SelectedOrder o, ColorScheme cs, Color primary) {
+      CollectionSelectedSales o, ColorScheme cs, Color primary) {
     String formattedDate = o.sale.docDate;
     try {
       final parsed = DateTime.parse(o.sale.docDate);
