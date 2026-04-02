@@ -42,6 +42,7 @@ class ApiEndpoints {
   static const String getSalesDtlListingReport = '/Report/GetSalesDtlListingReport';
   static const String getSalesOutstandingListReport = '/Report/GetSalesOutstandingListReport';
 
+
   // ── Sales ──────────────────────────────────────
   static const String getSalesList = '/Sales/GetSalesListByCompanyId';
   static const String getSalesListForCollect = '/Sales/GetSalesListAvailableForCollect';
@@ -50,6 +51,7 @@ class ApiEndpoints {
   static const String createSales = '/Sales/CreateSales';
   static const String updateSales = '/Sales/UpdateSales';
   static const String removeSales = '/Sales/RemoveSales';
+  static const String getSalesReport = '/Report/GetSalesReport';
 
   // ── Tax Type ───────────────────────────────────
   static const String getTaxList = '/TaxType/GeTaxListByCompanyId';

@@ -153,6 +153,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
       await _checkAndRestoreDraft();
       if (_isEditMode && widget.initialDoc != null) {
         if (mounted) setState(() => _initFromDoc(widget.initialDoc!));
+        if (_showImage) _loadImagesForLines();
       }
     } catch (_) {
       setState(() => _loadingDropdowns = false);
@@ -345,7 +346,9 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
       line.descriptionCtrl.text = detail.description;
       line.qtyCtrl.text = detail.qty.toString();
       line.unitPriceCtrl.text = detail.unitPrice.toString();
-      line.discountCtrl.text = detail.discount.toString();
+      line.discountCtrl.text = (detail.discountText?.isNotEmpty == true)
+          ? detail.discountText!
+          : (detail.discount > 0 ? _amtFmt.format(detail.discount) : '0');
       if (detail.taxTypeID != null && detail.taxTypeID! > 0) {
         line.selectedTaxType =
             _taxTypes.where((t) => t.taxTypeID == detail.taxTypeID).firstOrNull;
@@ -355,6 +358,28 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
             _locations.where((l) => l.locationID == detail.locationID).firstOrNull;
       }
       _lines.add(line);
+    }
+  }
+
+  Future<void> _loadImagesForLines() async {
+    final body = {
+      'apiKey': _apiKey,
+      'companyGUID': _companyGUID,
+      'userID': _userID,
+      'userSessionID': _userSessionID,
+    };
+    for (final line in _lines) {
+      if (line.stockID == 0) continue;
+      try {
+        final json = await BaseClient.post(
+          ApiEndpoints.getStock,
+          body: {...body, 'stockID': line.stockID},
+        );
+        final detail = StockDetail.fromJson(json as Map<String, dynamic>);
+        if (detail.image != null && detail.image!.isNotEmpty) {
+          if (mounted) setState(() => line.itemImage = detail.image);
+        }
+      } catch (_) {}
     }
   }
 

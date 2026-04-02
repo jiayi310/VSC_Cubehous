@@ -1,8 +1,13 @@
+import 'dart:io';
+
 import 'package:cubehous/common/my_color.dart';
 import 'package:cubehous/view/Common/common_dialog.dart';
 import 'package:cubehous/view/Common/decoration.dart';
+import 'package:cubehous/view/Sales/Sales/sales_form.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
 import 'dart:convert';
 import '../../../api/api_endpoints.dart';
 import '../../../api/base_client.dart';
@@ -21,6 +26,7 @@ class SalesDetailPage extends StatefulWidget {
 class _SalesDetailPageState extends State<SalesDetailPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
+  final _scrollControllers = List.generate(3, (_) => ScrollController());
 
   String _apiKey = '';
   String _companyGUID = '';
@@ -30,6 +36,7 @@ class _SalesDetailPageState extends State<SalesDetailPage>
 
   SalesDoc? _doc;
   bool _loading = true;
+  bool _pdfLoading = false;
   String? _error;
   String _imageMode = 'show';
 
@@ -48,7 +55,13 @@ class _SalesDetailPageState extends State<SalesDetailPage>
   @override
   void dispose() {
     _tabController.dispose();
+    for (final c in _scrollControllers) { c.dispose(); }
     super.dispose();
+  }
+
+  void _scrollToTop() {
+    final sc = _scrollControllers[_tabController.index];
+    if (sc.hasClients) sc.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
   }
 
   Future<void> _init() async {
@@ -79,6 +92,49 @@ class _SalesDetailPageState extends State<SalesDetailPage>
     _dateFmt = DateFormat(dF);
     await _loadDoc();
     if (_imageMode == 'show') _loadImages();
+  }
+
+  Future<void> _downloadPdf() async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
+    setState(() => _pdfLoading = true);
+    try {
+      final bytes = await BaseClient.postBytes(
+        ApiEndpoints.getSalesReport,
+        body: {
+          'apiKey': _apiKey,
+          'companyGUID': _companyGUID,
+          'userID': _userID,
+          'userSessionID': _userSessionID,
+          'docID': widget.docID.toString(),
+        },
+      );
+
+      Directory dir;
+      if (Platform.isAndroid) {
+        dir = (await getExternalStorageDirectory()) ?? await getTemporaryDirectory();
+      } else {
+        dir = await getApplicationDocumentsDirectory();
+      }
+
+      final timestamp = DateFormat('yyyyMMddHHmmss').format(DateTime.now());
+      final fileName = '${timestamp}_${_doc!.docNo.replaceAll('/', '-')}.pdf';
+      final file = File('${dir.path}/$fileName');
+      await file.writeAsBytes(bytes);
+      await OpenFilex.open(file.path);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text('Failed to download PDF: $e'),
+            behavior: SnackBarBehavior.floating,
+          ));
+      }
+    } finally {
+      if (mounted) setState(() => _pdfLoading = false);
+    }
   }
 
   Future<void> _deleteDoc() async {
@@ -192,9 +248,17 @@ class _SalesDetailPageState extends State<SalesDetailPage>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          _doc?.docNo ?? 'Sales Order',
-          style: const TextStyle(fontWeight: FontWeight.w600),
+        title: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onDoubleTap: _scrollToTop,
+          child: SizedBox(
+            width: double.infinity,
+            child: Text(
+              _doc?.docNo ?? 'Sales Order',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+              textAlign: TextAlign.center,
+            ),
+          ),
         ),
         centerTitle: true,
         actions: [
@@ -221,29 +285,66 @@ class _SalesDetailPageState extends State<SalesDetailPage>
               ),
             ),
           if (_doc != null)
-            PopupMenuButton<String>(
-              onSelected: (value) async {
-                switch (value) {
-                  case 'delete':
-                    if (!_accessRights.contains('SALES_DELETE')) {
-                      CommonDialog.showNoAccessRightDialog(context);
-                      return;
-                    }
-                    _deleteDoc();
-                }
-              },
-              itemBuilder: (_) => [
-                const PopupMenuItem(
-                  value: 'delete',
-                  child: ListTile(
-                    leading: Icon(Icons.delete_outline, color: Colors.red),
-                    title: Text('Delete', style: TextStyle(color: Colors.red)),
-                    contentPadding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
+            _pdfLoading
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+                  )
+                : PopupMenuButton<String>(
+                    onSelected: (value) async {
+                      switch (value) {
+                        case 'edit':
+                          if (!_accessRights.contains('SALES_EDIT')) {
+                            CommonDialog.showNoAccessRightDialog(context);
+                            return;
+                          }
+                          final updated = await Navigator.push<bool>(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => SalesFormPage(initialDoc: _doc),
+                            ),
+                          );
+                          if (updated == true && mounted) await _loadDoc();
+                        case 'pdf':
+                          _downloadPdf();
+                        case 'delete':
+                          if (!_accessRights.contains('SALES_DELETE')) {
+                            CommonDialog.showNoAccessRightDialog(context);
+                            return;
+                          }
+                          _deleteDoc();
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(
+                        value: 'edit',
+                        child: ListTile(
+                          leading: Icon(Icons.edit_outlined),
+                          title: Text('Edit'),
+                          contentPadding: EdgeInsets.zero,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'pdf',
+                        child: ListTile(
+                          leading: Icon(Icons.picture_as_pdf_outlined),
+                          title: Text('Download PDF'),
+                          contentPadding: EdgeInsets.zero,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'delete',
+                        child: ListTile(
+                          leading: Icon(Icons.delete_outline, color: Colors.red),
+                          title: Text('Delete', style: TextStyle(color: Colors.red)),
+                          contentPadding: EdgeInsets.zero,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            ),
         ],
         bottom: _loading || _error != null
             ? null
@@ -364,6 +465,7 @@ class _SalesDetailPageState extends State<SalesDetailPage>
     final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5);
 
     return ListView(
+      controller: _scrollControllers[0],
       children: [
         DetailSectionHeader(title: 'DOCUMENT'),
         DetailDetailRow(label: 'Doc No', value: doc.docNo),
@@ -373,8 +475,7 @@ class _SalesDetailPageState extends State<SalesDetailPage>
         DetailDetailRow(label: 'Remark', value: doc.remark ?? '-'),
         if ((doc.qtDocNo ?? '').isNotEmpty)
           DetailDetailRow(label: 'Quotation Ref', value: doc.qtDocNo!),
-        if ((doc.shippingMethodDescription ?? '').isNotEmpty)
-          DetailDetailRow(label: 'Shipping', value: doc.shippingMethodDescription!),
+        DetailDetailRow(label: 'Shipping', value: doc.shippingMethodDescription ?? '-'),
         if (doc.isPicking || doc.isPacking)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -398,7 +499,8 @@ class _SalesDetailPageState extends State<SalesDetailPage>
               DetailTotalPriceSummaryRow(
                 label: 'Subtotal',
                 value: _amtFmt.format(doc.subtotal),
-                muted: muted),
+                muted: muted,
+                valueColor: muted),
               Builder(builder: (_) {
                 final discAmt = doc.salesDetails.fold(0.0, (s, l) => s + l.qty * l.unitPrice * l.discount / 100);
                 return DetailTotalPriceSummaryRow(
@@ -443,6 +545,7 @@ class _SalesDetailPageState extends State<SalesDetailPage>
         .where((l) => (l ?? '').isNotEmpty).cast<String>().toList();
 
     return ListView(
+      controller: _scrollControllers[2],
       children: [
         DetailSectionHeader(title: 'CUSTOMER'),
         DetailDetailRow(label: 'Code', value: doc.customerCode),
@@ -470,7 +573,7 @@ class _SalesDetailPageState extends State<SalesDetailPage>
     if (doc.salesDetails.isEmpty) {
       return Center(
         child: Padding(
-          padding: const EdgeInsets.all(32),
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical:10),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -500,6 +603,7 @@ class _SalesDetailPageState extends State<SalesDetailPage>
     final primary = Theme.of(context).colorScheme.primary;
     return _imageMode == 'show'
         ? ListView.separated(
+            controller: _scrollControllers[1],
             padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
             itemCount: doc.salesDetails.length,
             separatorBuilder: (_, __) => const SizedBox(height: 10),
@@ -512,6 +616,7 @@ class _SalesDetailPageState extends State<SalesDetailPage>
             ),
           )
         : ListView.builder(
+            controller: _scrollControllers[1],
             padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
             itemCount: doc.salesDetails.length,
             itemBuilder: (_, i) => _ItemTile(

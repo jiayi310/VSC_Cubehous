@@ -61,6 +61,7 @@ class QuotationDetailLine {
   final String uom;
   final double qty;
   final double unitPrice;
+  final String? discountText;
   final double discount;
   final double total;
   final int? taxTypeID;
@@ -81,6 +82,7 @@ class QuotationDetailLine {
     required this.uom,
     required this.qty,
     required this.unitPrice,
+    this.discountText,
     required this.discount,
     required this.total,
     this.taxTypeID,
@@ -103,6 +105,7 @@ class QuotationDetailLine {
         uom: (json['uom'] as String?) ?? '',
         qty: _toD(json['qty']),
         unitPrice: _toD(json['unitPrice']),
+        discountText: (json['discountText'] as String?) ?? '',
         discount: _toD(json['discount']),
         total: _toD(json['total']),
         taxTypeID: json['taxTypeID'] as int?,

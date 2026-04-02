@@ -25,6 +25,7 @@ class QuotationDetailPage extends StatefulWidget {
 class _QuotationDetailPageState extends State<QuotationDetailPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
+  final _scrollControllers = List.generate(3, (_) => ScrollController());
 
   String _apiKey = '';
   String _companyGUID = '';
@@ -53,7 +54,13 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
   @override
   void dispose() {
     _tabController.dispose();
+    for (final c in _scrollControllers) { c.dispose(); }
     super.dispose();
+  }
+
+  void _scrollToTop() {
+    final sc = _scrollControllers[_tabController.index];
+    if (sc.hasClients) sc.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
   }
 
   Future<void> _init() async {
@@ -240,9 +247,17 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          _doc?.docNo ?? 'Quotation',
-          style: const TextStyle(fontWeight: FontWeight.w600),
+        title: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onDoubleTap: _scrollToTop,
+          child: SizedBox(
+            width: double.infinity,
+            child: Text(
+              _doc?.docNo ?? 'Quotation',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+              textAlign: TextAlign.center,
+            ),
+          ),
         ),
         centerTitle: true,
         actions: [
@@ -443,6 +458,7 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
     final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5);
 
     return ListView(
+      controller: _scrollControllers[0],
       children: [
         DetailSectionHeader(title: 'DOCUMENT'),
         DetailDetailRow(label: 'Doc No', value: doc.docNo),
@@ -504,7 +520,7 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
     if (doc.quotationDetails.isEmpty) {
       return Center(
         child: Padding(
-          padding: const EdgeInsets.all(32),
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical:10),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -532,20 +548,8 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
     }
 
     final primary = Theme.of(context).colorScheme.primary;
-    return _imageMode == 'show'
-        ? ListView.separated(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-            itemCount: doc.quotationDetails.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
-            itemBuilder: (_, i) => _ItemGridCard(
-              line: doc.quotationDetails[i],
-              amtFmt: _amtFmt,
-              qtyFmt: _qtyFmt,
-              primary: primary,
-              image: doc.quotationDetails[i].image,
-            ),
-          )
-        : ListView.builder(
+    return ListView.builder(
+            controller: _scrollControllers[1],
             padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
             itemCount: doc.quotationDetails.length,
             itemBuilder: (_, i) => _ItemTile(
@@ -553,6 +557,8 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
               line: doc.quotationDetails[i],
               salesFmt: _amtFmt,
               qtyFmt: _qtyFmt,
+              imageMode: _imageMode,
+              image: doc.quotationDetails[i].image,
             ),
           );
   }
@@ -566,6 +572,7 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
         .where((l) => (l ?? '').isNotEmpty).cast<String>().toList();
 
     return ListView(
+      controller: _scrollControllers[2],
       children: [
         DetailSectionHeader(title: 'CUSTOMER'),
         DetailDetailRow(label: 'Code', value: doc.customerCode),
@@ -635,12 +642,17 @@ class _ItemTile extends StatefulWidget {
   final QuotationDetailLine line;
   final NumberFormat salesFmt;
   final NumberFormat qtyFmt;
+  final String imageMode;
+  final String? image;
+
 
   const _ItemTile({
     required this.index,
     required this.line,
     required this.salesFmt,
     required this.qtyFmt,
+    required this.imageMode,
+    this.image,
   });
 
   @override
@@ -678,6 +690,15 @@ class _ItemTileState extends State<_ItemTile> {
       ),
     );
 
+    final image = ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: SizedBox(
+        width: 50,
+        height: 50,
+        child: ItemImage(base64: widget.image),
+      ),
+    );
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: GestureDetector(
@@ -693,7 +714,7 @@ class _ItemTileState extends State<_ItemTile> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              badge,
+              widget.imageMode == 'show' ? image : badge,
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -741,7 +762,7 @@ class _ItemTileState extends State<_ItemTile> {
                             style: TextStyle(
                                 fontSize: 11,
                                 color: cs.onSurface.withValues(alpha: 0.5))),
-                        if (line.discount > 0) ...[
+                        if ((line.discountText ?? '').isNotEmpty) ...[
                           const SizedBox(width: 6),
                           Container(
                             padding: const EdgeInsets.symmetric(
@@ -751,7 +772,7 @@ class _ItemTileState extends State<_ItemTile> {
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
-                              '-${_fmtNum(line.discount)}%',
+                              line.discountText ?? '',
                               style: const TextStyle(
                                   fontSize: 10,
                                   color: Colors.orange,
@@ -806,7 +827,7 @@ class _ItemTileState extends State<_ItemTile> {
                       if (discAmt > 0) ...[
                         const SizedBox(height: 3),
                         breakdownRow(
-                            'Discount (${_fmtNum(line.discount)}%)',
+                            'Discount',
                             '- ${salesFmt.format(discAmt)}',
                             cs,
                             valueColor: Mycolor.discountTextColor),
@@ -886,6 +907,7 @@ class _ItemGridCardState extends State<_ItemGridCard> {
     final qtyFmt = widget.qtyFmt;
     final discAmt = line.qty * line.unitPrice * line.discount / 100;
 
+
     final image = ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: SizedBox(
@@ -958,7 +980,7 @@ class _ItemGridCardState extends State<_ItemGridCard> {
                             style: TextStyle(
                                 fontSize: 11,
                                 color: cs.onSurface.withValues(alpha: 0.5))),
-                        if (line.discount > 0) ...[
+                        if ((line.discountText ?? '').isNotEmpty)  ...[
                           const SizedBox(width: 6),
                           Container(
                             padding: const EdgeInsets.symmetric(
@@ -968,7 +990,7 @@ class _ItemGridCardState extends State<_ItemGridCard> {
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
-                              '-${_fmtNum(line.discount)}%',
+                              line.discountText ?? '',
                               style: const TextStyle(
                                   fontSize: 10,
                                   color: Colors.orange,
@@ -1023,7 +1045,7 @@ class _ItemGridCardState extends State<_ItemGridCard> {
                       if (discAmt > 0) ...[
                         const SizedBox(height: 3),
                         _breakdownRow(
-                            'Discount (${_fmtNum(line.discount)}%)',
+                            'Discount',
                             '- ${salesFmt.format(discAmt)}',
                             cs,
                             valueColor: Colors.orange),
