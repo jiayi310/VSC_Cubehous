@@ -133,6 +133,14 @@ class ApiEndpoints {
   static const String removeStockAdjustment = '/StockAdjustment/RemoveAdjustment';
   static const String getStockAdjustmentReport = '/Report/GetStockAdjustmentReport';
 
+  // ── Inbound ──────────────────────────────────
+  static const String getInboundList = '/Inbound/GetInboundListByCompanyId';
+  static const String getInbound = '/Inbound/GetInbound';
+  static const String createInbound= '/Inbound/CreateInbound';
+  static const String updateInbound = '/Inbound/UpdateInbound';
+  static const String removeInbound= '/Inbound/RemoveInbound';
+  static const String getInboundReport = '/Report/GetInboundReport';
+
   // ── Stock Filter Options ────────────────────────
   static const String getStockGroupList = '/StockGroup/GetStockGroupListByCompanyId';
   static const String getStockTypeList = '/StockType/GetStockTypeListByCompanyId';

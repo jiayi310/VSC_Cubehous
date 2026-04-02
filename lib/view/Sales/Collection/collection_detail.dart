@@ -25,6 +25,7 @@ class CollectionDetailPage extends StatefulWidget {
 class _CollectionDetailPageState extends State<CollectionDetailPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
+  final _scrollControllers = List.generate(3, (_) => ScrollController());
 
   String _apiKey = '';
   String _companyGUID = '';
@@ -51,7 +52,13 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
   @override
   void dispose() {
     _tabController.dispose();
+    for (final c in _scrollControllers) { c.dispose(); }
     super.dispose();
+  }
+
+  void _scrollToTop() {
+    final sc = _scrollControllers[_tabController.index];
+    if (sc.hasClients) sc.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
   }
 
   Future<void> _init() async {
@@ -200,9 +207,17 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          _doc?.docNo ?? 'Collection',
-          style: const TextStyle(fontWeight: FontWeight.w600),
+        title: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onDoubleTap: _scrollToTop,
+          child: SizedBox(
+            width: double.infinity,
+            child: Text(
+              _doc?.docNo ?? 'Collection',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+              textAlign: TextAlign.center,
+            ),
+          ),
         ),
         centerTitle: true,
         actions: [
@@ -376,6 +391,7 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
             .toList();
 
     return ListView(
+      controller: _scrollControllers[0],
       children: [
         DetailSectionHeader(title: 'DOCUMENT'),
         DetailDetailRow(label: 'Doc No', value: doc.docNo),
@@ -462,6 +478,7 @@ class _CollectionDetailPageState extends State<CollectionDetailPage>
 
     final primary = Theme.of(context).colorScheme.primary;
     return ListView.builder(
+      controller: _scrollControllers[1],
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
       itemCount: doc.collectMappings.length,
       itemBuilder: (_, i) => _OrderMappingCard(

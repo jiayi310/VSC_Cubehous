@@ -520,7 +520,7 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
     if (doc.quotationDetails.isEmpty) {
       return Center(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32, vertical:10),
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical:32),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -549,8 +549,8 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
 
     final primary = Theme.of(context).colorScheme.primary;
     return ListView.builder(
-            controller: _scrollControllers[1],
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+            controller: _scrollControllers[2],
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
             itemCount: doc.quotationDetails.length,
             itemBuilder: (_, i) => _ItemTile(
               index: i,
@@ -572,7 +572,7 @@ class _QuotationDetailPageState extends State<QuotationDetailPage>
         .where((l) => (l ?? '').isNotEmpty).cast<String>().toList();
 
     return ListView(
-      controller: _scrollControllers[2],
+      controller: _scrollControllers[1],
       children: [
         DetailSectionHeader(title: 'CUSTOMER'),
         DetailDetailRow(label: 'Code', value: doc.customerCode),
@@ -693,14 +693,14 @@ class _ItemTileState extends State<_ItemTile> {
     final image = ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: SizedBox(
-        width: 50,
-        height: 50,
+        width: 40,
+        height: 40,
         child: ItemImage(base64: widget.image),
       ),
     );
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: 5),
       child: GestureDetector(
         onTap: () => setState(() => _expanded = !_expanded),
         child: Container(
@@ -830,6 +830,7 @@ class _ItemTileState extends State<_ItemTile> {
                             'Discount',
                             '- ${salesFmt.format(discAmt)}',
                             cs,
+                            labelColor: Mycolor.discountTextColor,
                             valueColor: Mycolor.discountTextColor),
                       ],
                       if ((line.taxCode ?? '').isNotEmpty) ...[
@@ -838,6 +839,7 @@ class _ItemTileState extends State<_ItemTile> {
                             'Tax (${_fmtNum(line.taxRate)}%)',
                             '+ ${salesFmt.format(line.taxAmt)}',
                             cs,
+                            labelColor: Mycolor.taxTextColor,
                             valueColor: Mycolor.taxTextColor),
                       ],
                     ],
@@ -851,224 +853,4 @@ class _ItemTileState extends State<_ItemTile> {
     );
   }
 }
-
-// ─────────────────────────────────────────────────────────────────────
-// Item grid card (shown when display mode = Show Image)
-// ─────────────────────────────────────────────────────────────────────
-
-class _ItemGridCard extends StatefulWidget {
-  final QuotationDetailLine line;
-  final NumberFormat amtFmt;
-  final NumberFormat qtyFmt;
-  final Color primary;
-  final String? image;
-
-  const _ItemGridCard({
-    required this.line,
-    required this.amtFmt,
-    required this.qtyFmt,
-    required this.primary,
-    this.image,
-  });
-
-  @override
-  State<_ItemGridCard> createState() => _ItemGridCardState();
-}
-
-class _ItemGridCardState extends State<_ItemGridCard> {
-  bool _expanded = false;
-
-  String _fmtNum(double v) =>
-      v == v.truncateToDouble() ? v.toInt().toString() : v.toString();
-
-  Widget _breakdownRow(String label, String value, ColorScheme cs,
-      {Color? valueColor}) {
-    return Row(
-      children: [
-        Text(label,
-            style: TextStyle(
-                fontSize: 11, color: cs.onSurface.withValues(alpha: 0.5))),
-        const Spacer(),
-        Text(value,
-            style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: valueColor ?? cs.onSurface.withValues(alpha: 0.65))),
-      ],
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final primary = cs.primary;
-    final line = widget.line;
-    final salesFmt = widget.amtFmt;
-    final qtyFmt = widget.qtyFmt;
-    final discAmt = line.qty * line.unitPrice * line.discount / 100;
-
-
-    final image = ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: SizedBox(
-        width: 50,
-        height: 50,
-        child: ItemImage(base64: widget.image),
-      ),
-    );
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: GestureDetector(
-        onTap: () => setState(() => _expanded = !_expanded),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-          decoration: BoxDecoration(
-            color: (Theme.of(context).cardTheme.color ?? cs.surface)
-                .withValues(alpha: 0.5),
-            border: Border.all(color: cs.outline.withValues(alpha: 0.18)),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              image,
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Row 1: stock code | qty
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            line.stockCode,
-                            style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: primary),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'x ${qtyFmt.format(line.qty)}',
-                          style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: primary),
-                        ),
-                      ],
-                    ),
-                    // Row 2: description
-                    const SizedBox(height: 2),
-                    Text(
-                      line.description,
-                      style: TextStyle(
-                          fontSize: 12,
-                          color: cs.onSurface.withValues(alpha: 0.65)),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    // Row 3: UOM + badges | total
-                    Row(
-                      children: [
-                        Text(line.uom,
-                            style: TextStyle(
-                                fontSize: 11,
-                                color: cs.onSurface.withValues(alpha: 0.5))),
-                        if ((line.discountText ?? '').isNotEmpty)  ...[
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 5, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: Colors.orange.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              line.discountText ?? '',
-                              style: const TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.orange,
-                                  fontWeight: FontWeight.w600),
-                            ),
-                          ),
-                        ],
-                        if ((line.taxCode ?? '').isNotEmpty) ...[
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 5, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: Colors.teal.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              line.taxCode!,
-                              style: const TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.teal,
-                                  fontWeight: FontWeight.w600),
-                            ),
-                          ),
-                        ],
-                        const Spacer(),
-                        Text(
-                          salesFmt.format(line.total + line.taxAmt),
-                          style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w800,
-                              color: primary),
-                        ),
-                      ],
-                    ),
-                    // Expandable breakdown
-                    if (_expanded) ...[
-                      const SizedBox(height: 8),
-                      Divider(
-                          height: 1,
-                          color: cs.outline.withValues(alpha: 0.2)),
-                      const SizedBox(height: 8),
-                      _breakdownRow(
-                          'UnitPrice',
-                          salesFmt.format(line.unitPrice),
-                          cs),
-                      const SizedBox(height: 3),
-                      _breakdownRow(
-                          'Subtotal',
-                          salesFmt.format(line.qty * line.unitPrice),
-                          cs),
-                      if (discAmt > 0) ...[
-                        const SizedBox(height: 3),
-                        _breakdownRow(
-                            'Discount',
-                            '- ${salesFmt.format(discAmt)}',
-                            cs,
-                            valueColor: Colors.orange),
-                      ],
-                      if ((line.taxCode ?? '').isNotEmpty) ...[
-                        const SizedBox(height: 3),
-                        _breakdownRow(
-                            'Tax (${_fmtNum(line.taxRate)}%)',
-                            '+ ${salesFmt.format(line.taxAmt)}',
-                            cs,
-                            valueColor: Colors.teal),
-                      ],
-                    ],
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-
 

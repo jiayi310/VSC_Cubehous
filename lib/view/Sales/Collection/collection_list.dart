@@ -316,8 +316,17 @@ class _CollectionListPageState extends State<CollectionListPage> {
     final primary = Theme.of(context).colorScheme.primary;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Collections',
-            style: TextStyle(fontWeight: FontWeight.w600)),
+        title: GestureDetector(
+          onDoubleTap: () {
+            if (_scrollController.hasClients) {
+              _scrollController.animateTo(0,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOut);
+            }
+          },
+          child: const Text('Collections',
+              style: TextStyle(fontWeight: FontWeight.w600)),
+        ),
         centerTitle: true,
         actions: [
           IconButton(

@@ -26,7 +26,8 @@ import '../../Common/Stock/item_picker_page.dart';
 class SalesFormPage extends StatefulWidget {
   final SalesDoc? initialDoc;
   final QuotationDoc? fromQuotation;
-  const SalesFormPage({super.key, this.initialDoc, this.fromQuotation});
+  final SalesDoc? copyFrom;
+  const SalesFormPage({super.key, this.initialDoc, this.fromQuotation, this.copyFrom});
 
   @override
   State<SalesFormPage> createState() => _SalesFormPageState();
@@ -156,6 +157,9 @@ class _SalesFormPageState extends State<SalesFormPage> {
       if (_isEditMode && widget.initialDoc != null) {
         if (mounted) setState(() => _initFromDoc(widget.initialDoc!));
         if (_showImage) _loadImagesForLines();
+      } else if (widget.copyFrom != null) {
+        if (mounted) setState(() => _initFromCopy(widget.copyFrom!));
+        if (_showImage) _loadImagesForLines();
       }
     } catch (_) {
       setState(() => _loadingDropdowns = false);
@@ -282,6 +286,83 @@ class _SalesFormPageState extends State<SalesFormPage> {
     }
   }
 
+  void _initFromCopy(SalesDoc doc) {
+    _descriptionCtrl.text = doc.description ?? '';
+    _remarkCtrl.text = doc.remark ?? '';
+    _addr1 = doc.address1 ?? '';
+    _addr2 = doc.address2 ?? '';
+    _addr3 = doc.address3 ?? '';
+    _addr4 = doc.address4 ?? '';
+    _deliverAddr1 = doc.deliverAddr1 ?? '';
+    _deliverAddr2 = doc.deliverAddr2 ?? '';
+    _deliverAddr3 = doc.deliverAddr3 ?? '';
+    _deliverAddr4 = doc.deliverAddr4 ?? '';
+    _name = doc.customerName;
+    _attention = doc.attention ?? '';
+    _phone = doc.phone ?? '';
+    _fax = doc.fax ?? '';
+    _email = doc.email ?? '';
+
+    _selectedCustomer = Customer(
+      customerID: doc.customerID,
+      customerCode: doc.customerCode,
+      name: doc.customerName,
+      name2: '',
+      address1: doc.address1,
+      address2: doc.address2,
+      address3: doc.address3,
+      address4: doc.address4,
+      deliverAddr1: doc.deliverAddr1,
+      deliverAddr2: doc.deliverAddr2,
+      deliverAddr3: doc.deliverAddr3,
+      deliverAddr4: doc.deliverAddr4,
+      attention: doc.attention,
+      phone1: doc.phone,
+      fax1: doc.fax,
+      email: doc.email,
+      priceCategory: 1,
+      customerType: '',
+      salesAgent: '',
+    );
+
+    if ((doc.salesAgent ?? '').isNotEmpty) {
+      _selectedSalesAgent = SalesAgent(name: doc.salesAgent);
+    }
+
+    if (doc.shippingMethodID != null && doc.shippingMethodID! > 0) {
+      _selectedShippingMethod = _shippingMethods
+              .where((s) => s.shippingMethodID == doc.shippingMethodID)
+              .firstOrNull ??
+          ShippingMethod(
+            shippingMethodID: doc.shippingMethodID!,
+            description: doc.shippingMethodDescription ?? '',
+          );
+    }
+
+    for (final detail in doc.salesDetails) {
+      final line = _LineItemSales()
+        ..stockID = detail.stockID
+        ..stockCode = detail.stockCode
+        ..uom = detail.uom
+        ..itemImage = detail.image;
+      line.descriptionCtrl.text = detail.description;
+      line.qtyCtrl.text = detail.qty.toString();
+      line.unitPriceCtrl.text = detail.unitPrice.toString();
+      line.discountCtrl.text = (detail.discountText?.isNotEmpty == true)
+          ? detail.discountText!
+          : (detail.discount > 0 ? _amtFmt.format(detail.discount) : '0');
+      if (detail.taxTypeID != null && detail.taxTypeID! > 0) {
+        line.selectedTaxType =
+            _taxTypes.where((t) => t.taxTypeID == detail.taxTypeID).firstOrNull;
+      }
+      if (detail.locationID != null && detail.locationID! > 0) {
+        line.selectedLocation =
+            _locations.where((l) => l.locationID == detail.locationID).firstOrNull;
+      }
+      _lines.add(line);
+    }
+  }
+
   void _initFromDoc(SalesDoc doc) {
     _editDocID = doc.docID;
     _editDocNo = doc.docNo;
@@ -348,7 +429,9 @@ class _SalesFormPageState extends State<SalesFormPage> {
       line.descriptionCtrl.text = detail.description;
       line.qtyCtrl.text = detail.qty.toString();
       line.unitPriceCtrl.text = detail.unitPrice.toString();
-      line.discountCtrl.text = detail.discount > 0 ? _amtFmt.format(detail.discount) : '0';
+      line.discountCtrl.text = (detail.discountText?.isNotEmpty == true)
+          ? detail.discountText!
+          : (detail.discount > 0 ? _amtFmt.format(detail.discount) : '0');
       if (detail.taxTypeID != null && detail.taxTypeID! > 0) {
         line.selectedTaxType =
             _taxTypes.where((t) => t.taxTypeID == detail.taxTypeID).firstOrNull;

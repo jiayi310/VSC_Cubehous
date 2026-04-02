@@ -530,20 +530,21 @@ Widget stepBtn(BuildContext context, IconData icon, VoidCallback onTap) {
   );
 }
 
-Widget breakdownRow(String label, String value, ColorScheme cs,
-      {Color? valueColor}) =>
-      Row(
-        children: [
-          Text(label,
-              style: TextStyle(
-                  fontSize: 11,
-                  color: cs.onSurface.withValues(alpha: 0.5))),
-          const Spacer(),
-          Text(value,
-              style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: valueColor ??
-                      cs.onSurface.withValues(alpha: 0.65))),
-        ],
-      );
+Widget breakdownRow(String label, String value, ColorScheme cs, {Color? labelColor, Color? valueColor}){
+  return Row(
+    children: [
+      Text(label,
+        style: TextStyle(
+          fontSize: 11,
+          color: labelColor ?? cs.onSurface.withValues(alpha: 0.5))),
+      const Spacer(),
+      Text(value,
+        style: TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w500,
+        color: valueColor ??
+        cs.onSurface.withValues(alpha: 0.65))),
+    ],
+  );
+}
+      

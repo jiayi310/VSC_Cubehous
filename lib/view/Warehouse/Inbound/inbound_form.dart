@@ -35,9 +35,6 @@ class _InboundFormPageState extends State<InboundFormPage> {
   String _userSessionID = '';
 
   bool get _isEditMode => widget.initialDoc != null;
-  int _editDocID = 0;
-  String _editDocNo = '';
-
   // ── Section expand state ────────────────────────────────────────────
   final _formScrollCtrl = ScrollController();
   bool _docExpanded = true;
@@ -48,7 +45,7 @@ class _InboundFormPageState extends State<InboundFormPage> {
   bool _scanSearching = false;
   bool _showImage = true;
   bool _isEnableTax = false;
-  int _defaultLocationID = 0;
+  int _defaultLocationID = 0; // ignore: unused_field
   List<Location> _locations = [];
   List<TaxType> _taxTypes = [];
   Customer? _selectedCustomer;
@@ -631,9 +628,7 @@ class _InboundFormPageState extends State<InboundFormPage> {
                                             )),
                                   const SizedBox(height: 8),
                                   OutlinedButton.icon(
-                                    onPressed: () {
-                                      // TODO: open item picker
-                                    },
+                                    onPressed: _addLine,
                                     icon: const Icon(Icons.add, size: 18),
                                     label: const Text('Add Item'),
                                     style: OutlinedButton.styleFrom(
@@ -1226,9 +1221,6 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
   int _qtyDp = 2;
   int _priceDp = 2;
 
-  final _amtFmt = NumberFormat('#,##0.00');
-  
-
   @override
   void initState() {
     super.initState();
@@ -1357,7 +1349,7 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
     final primary = cs.primary;
     final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5);
 
-    final int _salesDp = 2;
+    final int salesDp = 2;
 
     return Container(
       decoration: BoxDecoration(
@@ -1495,7 +1487,7 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
                   color: cs.onSurface.withValues(alpha: 0.5))),
               const SizedBox(height: 8),
               DropdownButtonFormField<TaxType?>(
-                value: _taxType,
+                initialValue: _taxType,
                 isExpanded: true,
                 style: const TextStyle(fontSize: 13, color: Colors.black),
                 dropdownColor: Colors.white,
@@ -1529,13 +1521,13 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
                 children: [
                   FormTotalPriceSummaryRow(
                     label: 'Subtotal',
-                    value: StockCommon.formatDP(_subtotal, _salesDp),
+                    value: StockCommon.formatDP(_subtotal, salesDp),
                     muted: muted),
 
                   const SizedBox(height: 6),
                   FormTotalPriceSummaryRow(
                     label: 'Discount',
-                    value: '- ${StockCommon.formatDP(_discAmt, _salesDp)}',
+                    value: '- ${StockCommon.formatDP(_discAmt, salesDp)}',
                     muted: muted,
                     valueColor: _discAmt == 0 ? muted : Mycolor.discountTextColor),
                         
@@ -1543,14 +1535,14 @@ class _LineItemEditSheetState extends State<_LineItemEditSheet> {
                     const SizedBox(height: 6),
                     FormTotalPriceSummaryRow(
                       label: 'Tax', 
-                      value: '+ ${StockCommon.formatDP(_taxAmt, _salesDp)}',
+                      value: '+ ${StockCommon.formatDP(_taxAmt, salesDp)}',
                       muted: muted,
                       valueColor: _taxType?.taxCode == null ? muted : Mycolor.taxTextColor),
                   ],
                   Divider(height: 16, color: primary.withValues(alpha: 0.15)),
                   FormTotalPriceSummaryRow(
                       label: 'Total', 
-                      value: StockCommon.formatDP(_lineTotal + (widget.enableTax ? _taxAmt : 0), _salesDp),
+                      value: StockCommon.formatDP(_lineTotal + (widget.enableTax ? _taxAmt : 0), salesDp),
                       muted: muted,
                       valueColor: Mycolor.primary),
                 ],

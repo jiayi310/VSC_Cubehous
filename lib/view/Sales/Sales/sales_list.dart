@@ -262,8 +262,17 @@ class _SalesListPageState extends State<SalesListPage> {
     final primary = Theme.of(context).colorScheme.primary;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Sales Orders',
-            style: TextStyle(fontWeight: FontWeight.w600)),
+        title: GestureDetector(
+          onDoubleTap: () {
+            if (_scrollController.hasClients) {
+              _scrollController.animateTo(0,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOut);
+            }
+          },
+          child: const Text('Sales Orders',
+              style: TextStyle(fontWeight: FontWeight.w600)),
+        ),
         centerTitle: true,
         actions: [
           IconButton(

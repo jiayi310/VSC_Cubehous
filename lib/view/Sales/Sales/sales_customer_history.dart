@@ -1,3 +1,4 @@
+import 'package:cubehous/view/Common/customer_picker_page.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../api/api_endpoints.dart';
@@ -151,15 +152,15 @@ class _CustomerHistoryPageState extends State<CustomerHistoryPage> {
   }
 
   Future<void> _pickCustomer() async {
-    final picked = await showModalBottomSheet<Customer>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _CustomerPickerSheet(
-        apiKey: _apiKey,
-        companyGUID: _companyGUID,
-        userID: _userID,
-        userSessionID: _userSessionID,
+    final picked = await Navigator.push<Customer>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CustomerPickerPage(
+          apiKey: _apiKey,
+          companyGUID: _companyGUID,
+          userID: _userID,
+          userSessionID: _userSessionID,
+        ),
       ),
     );
     if (picked != null) {
@@ -579,220 +580,6 @@ class _PillChip extends StatelessWidget {
             fontSize: 11,
             fontWeight: FontWeight.w600,
             color: cs.onSurface.withValues(alpha: 0.7)),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Date Pill
-// ─────────────────────────────────────────────────────────────────────
-
-// ─────────────────────────────────────────────────────────────────────
-// Customer picker sheet
-// ─────────────────────────────────────────────────────────────────────
-
-class _CustomerPickerSheet extends StatefulWidget {
-  final String apiKey;
-  final String companyGUID;
-  final int userID;
-  final String userSessionID;
-
-  const _CustomerPickerSheet({
-    required this.apiKey,
-    required this.companyGUID,
-    required this.userID,
-    required this.userSessionID,
-  });
-
-  @override
-  State<_CustomerPickerSheet> createState() =>
-      _CustomerPickerSheetState();
-}
-
-class _CustomerPickerSheetState extends State<_CustomerPickerSheet> {
-  final _searchCtrl = TextEditingController();
-  List<Customer> _customers = [];
-  bool _loading = true;
-  bool _loadingMore = false;
-  String? _error;
-  int _page = 0;
-  int _total = 0;
-  static const _pageSize = 20;
-  bool get _hasMore => _customers.length < _total;
-  final _scrollCtrl = ScrollController();
-
-  @override
-  void initState() {
-    super.initState();
-    _scrollCtrl.addListener(_onScroll);
-    _fetch(reset: true);
-  }
-
-  @override
-  void dispose() {
-    _searchCtrl.dispose();
-    _scrollCtrl.dispose();
-    super.dispose();
-  }
-
-  void _onScroll() {
-    if (_scrollCtrl.position.pixels >=
-            _scrollCtrl.position.maxScrollExtent - 200 &&
-        !_loadingMore &&
-        _hasMore) {
-      _loadMore();
-    }
-  }
-
-  Future<void> _fetch({required bool reset}) async {
-    if (reset) {
-      setState(() {
-        _loading = true;
-        _error = null;
-        _page = 0;
-      });
-    }
-    try {
-      final response = await BaseClient.post(
-        ApiEndpoints.getCustomerList,
-        body: {
-          'apiKey': widget.apiKey,
-          'companyGUID': widget.companyGUID,
-          'userID': widget.userID,
-          'userSessionID': widget.userSessionID,
-          'pageIndex': reset ? 0 : _page,
-          'pageSize': _pageSize,
-          'searchTerm': _searchCtrl.text.trim().isEmpty
-              ? null
-              : _searchCtrl.text.trim(),
-        },
-      );
-      final raw = response as Map<String, dynamic>;
-      final data = (raw['data'] as List<dynamic>?)
-              ?.map((e) => Customer.fromJson(e as Map<String, dynamic>))
-              .toList() ??
-          [];
-      final total =
-          (raw['paginationOpt']?['totalRecord'] as int?) ?? data.length;
-      setState(() {
-        _customers = reset ? data : [..._customers, ...data];
-        _total = total;
-        _loading = false;
-        _loadingMore = false;
-      });
-    } catch (e) {
-      setState(() {
-        _loading = false;
-        _loadingMore = false;
-        _error = e.toString();
-      });
-    }
-  }
-
-  Future<void> _loadMore() async {
-    setState(() {
-      _loadingMore = true;
-      _page++;
-    });
-    await _fetch(reset: false);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final surface = Theme.of(context).colorScheme.surface;
-    return DraggableScrollableSheet(
-      initialChildSize: 0.85,
-      minChildSize: 0.5,
-      maxChildSize: 0.95,
-      expand: false,
-      builder: (_, sc) => Material(
-        color: surface,
-        borderRadius:
-            const BorderRadius.vertical(top: Radius.circular(20)),
-        child: Column(
-          children: [
-            const SizedBox(height: 12),
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-              child: TextField(
-                controller: _searchCtrl,
-                textInputAction: TextInputAction.search,
-                onSubmitted: (_) => _fetch(reset: true),
-                decoration: InputDecoration(
-                  hintText: 'Search customers...',
-                  prefixIcon: const Icon(Icons.search, size: 20),
-                  suffixIcon: _searchCtrl.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear, size: 18),
-                          onPressed: () {
-                            _searchCtrl.clear();
-                            _fetch(reset: true);
-                          })
-                      : null,
-                  isDense: true,
-                  contentPadding:
-                      const EdgeInsets.symmetric(vertical: 10),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  filled: true,
-                ),
-                onChanged: (_) => setState(() {}),
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Divider(height: 1),
-            Expanded(
-              child: _loading
-                  ? const Center(child: DotsLoading())
-                  : _error != null
-                      ? Center(child: Text('Error: $_error'))
-                      : ListView.builder(
-                          controller: _scrollCtrl,
-                          itemCount: _customers.length +
-                              (_loadingMore ? 1 : 0),
-                          itemBuilder: (ctx, i) {
-                            if (i == _customers.length) {
-                              return const Padding(
-                                padding: EdgeInsets.all(16),
-                                child: Center(child: DotsLoading()),
-                              );
-                            }
-                            final c = _customers[i];
-                            return ListTile(
-                              title: Text(c.name,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w500)),
-                              subtitle: Text(c.customerCode,
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .primary)),
-                              trailing: const Icon(Icons.chevron_right,
-                                  size: 18),
-                              onTap: () => Navigator.pop(context, c),
-                            );
-                          },
-                        ),
-            ),
-          ],
-        ),
       ),
     );
   }
