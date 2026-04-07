@@ -271,8 +271,9 @@ class CustomerPurchaseStock {
   final double unitPrice;
   final double totalAmt;
   final String? lastPurchaseDate;
+  String? image;
 
-  const CustomerPurchaseStock({
+  CustomerPurchaseStock({
     required this.stockID,
     required this.stockCode,
     required this.description,
@@ -281,6 +282,7 @@ class CustomerPurchaseStock {
     required this.unitPrice,
     required this.totalAmt,
     this.lastPurchaseDate,
+    this.image,
   });
 
   factory CustomerPurchaseStock.fromJson(Map<String, dynamic> json) =>

@@ -75,7 +75,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
   bool _docExpanded = true;
   bool _notesExpanded = true;
   bool _itemsExpanded = true;
-  final _dateFmt = DateFormat('dd MMM yyyy');
+  late DateFormat _dateFmt;
   late NumberFormat _amtFmt;
   late NumberFormat _qtyFmt;
   late String _currency = '';
@@ -109,6 +109,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
       SessionManager.getSalesDecimalPoint(),
       SessionManager.getQuantityDecimalPoint(),
       SessionManager.getCurrencySymbol(),
+      SessionManager.getDateFormat(),
     ]);
     if (mounted) {
       setState(() {
@@ -120,6 +121,7 @@ class _QuotationFormPageState extends State<QuotationFormPage> {
         final dp2 = results[4] as int;
         _qtyFmt = NumberFormat('#,##0.${'0' * dp2}');
         _currency = results[5] as String;
+        _dateFmt = DateFormat(results[6] as String);
       });
     }
     

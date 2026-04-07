@@ -31,6 +31,7 @@ class _CustomerHistoryPageState extends State<CustomerHistoryPage> {
   bool _isLoading = false;
   bool _isLoadingMore = false;
   String? _error;
+  String _imageMode = 'show';
 
   // Pagination
   int _currentPage = 0;
@@ -41,9 +42,10 @@ class _CustomerHistoryPageState extends State<CustomerHistoryPage> {
   // Date filter
   DateTime _fromDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
   DateTime _toDate = DateTime.now();
-  final _dateFmt = DateFormat('dd/MM/yyyy');
-  final _amtFmt = NumberFormat('#,##0.00');
-  final _qtyFmt = NumberFormat('#,##0.##');
+  late DateFormat _dateFmt = DateFormat('dd MM yyyy');
+  late NumberFormat _amtFmt;
+  late NumberFormat _qtyFmt;
+  late String _currency = '';
 
   final _scrollController = ScrollController();
 
@@ -61,10 +63,30 @@ class _CustomerHistoryPageState extends State<CustomerHistoryPage> {
   }
 
   Future<void> _loadSession() async {
-    _apiKey = await SessionManager.getApiKey();
-    _companyGUID = await SessionManager.getCompanyGUID();
-    _userID = await SessionManager.getUserID();
-    _userSessionID = await SessionManager.getUserSessionID();
+    final results = await Future.wait([
+      SessionManager.getApiKey(),
+      SessionManager.getCompanyGUID(),
+      SessionManager.getUserID(),
+      SessionManager.getUserSessionID(),
+      SessionManager.getImageMode(),
+      SessionManager.getSalesDecimalPoint(),
+      SessionManager.getQuantityDecimalPoint(),
+      SessionManager.getCurrencySymbol(),
+      SessionManager.getDateFormat(),
+    ]);
+
+    _apiKey = results[0] as String;
+    _companyGUID = results[1] as String;
+    _userID = results[2] as int;
+    _userSessionID = results[3] as String;
+    _imageMode = results[4] as String;
+    final dp = results[5] as int;
+    _amtFmt = NumberFormat('#,##0.${'0' * dp}');
+    final dp2 = results[6] as int;
+    _qtyFmt = NumberFormat('#,##0.${'0' * dp2}');
+    _currency = results[7] as String;
+    final dF = results[8] as String;
+    _dateFmt = DateFormat(dF);
   }
 
   void _onScroll() {
@@ -123,6 +145,8 @@ class _CustomerHistoryPageState extends State<CustomerHistoryPage> {
         newItems = result.data ?? [];
         total = result.pagination?.totalRecord ?? newItems.length;
       }
+
+      if (_imageMode == 'show') _loadImages();
 
       setState(() {
         if (reset) {
@@ -199,6 +223,37 @@ class _CustomerHistoryPageState extends State<CustomerHistoryPage> {
       setState(() => _toDate = picked);
       _fetchHistory(reset: true);
     }
+  }
+
+  Future<void> _loadImages() async {
+    if (_items.isEmpty) return;
+
+    final linesByStockId = <int, List<CustomerPurchaseStock>>{};
+    for (final line in _items) {
+      linesByStockId.putIfAbsent(line.stockID, () => []).add(line);
+    }
+
+    final ids = linesByStockId.keys.toList();
+    final futures = ids.map((id) => BaseClient.post(
+          ApiEndpoints.getStock,
+          body: {
+            'apiKey': _apiKey,
+            'companyGUID': _companyGUID,
+            'userID': _userID,
+            'userSessionID': _userSessionID,
+            'stockID': id,
+          },
+        ));
+    final results = await Future.wait(futures, eagerError: false);
+    for (var i = 0; i < ids.length; i++) {
+      try {
+        final img = (results[i] as Map<String, dynamic>)['image'] as String?;
+        for (final line in linesByStockId[ids[i]]!) {
+          line.image = img;
+        }
+      } catch (_) {}
+    }
+    if (mounted) setState(() {});
   }
 
   @override
@@ -451,6 +506,8 @@ class _CustomerHistoryPageState extends State<CustomerHistoryPage> {
             item: _items[i],
             amtFmt: _amtFmt,
             qtyFmt: _qtyFmt,
+            currency: _currency,
+            imageMode : _imageMode,
           );
         },
       ),
@@ -466,11 +523,15 @@ class _PurchaseStockTile extends StatelessWidget {
   final CustomerPurchaseStock item;
   final NumberFormat amtFmt;
   final NumberFormat qtyFmt;
+  final String currency;
+  final String imageMode;
 
   const _PurchaseStockTile({
     required this.item,
     required this.amtFmt,
     required this.qtyFmt,
+    required this.currency,
+    required this.imageMode,
   });
 
   @override
@@ -493,15 +554,29 @@ class _PurchaseStockTile extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: primary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                color: primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: imageMode == 'show' &&
+                      item.image != null &&
+                      item.image!.isNotEmpty
+                  ? Image.network(
+                      item.image!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Icon(
+                          Icons.inventory_2_outlined,
+                          size: 22,
+                          color: primary),
+                    )
+                  : Icon(Icons.inventory_2_outlined,
+                      size: 22, color: primary),
             ),
-            child: Icon(Icons.inventory_2_outlined,
-                size: 22, color: primary),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -522,7 +597,7 @@ class _PurchaseStockTile extends StatelessWidget {
                     ),
                     const Spacer(),
                     Text(
-                      'RM ${amtFmt.format(item.totalAmt)}',
+                      '${qtyFmt.format(item.totalQty)}',
                       style: const TextStyle(
                           fontSize: 13, fontWeight: FontWeight.w700),
                     ),
@@ -530,24 +605,34 @@ class _PurchaseStockTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 // Row 2: description
-                Text(
-                  item.description,
-                  style: const TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w500),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                Row(
+                  children: [
+                    Text(
+                      item.description,
+                      style: const TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.w500),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const Spacer(),
+                    Text(
+                      '${amtFmt.format(item.unitPrice)}',
+                      style: TextStyle(
+                          fontSize: 14, 
+                          fontWeight: FontWeight.w500,
+                          color: muted
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 5),
                 // Row 3: UOM chip | qty chip | unit price
                 Row(
                   children: [
                     _PillChip(label: item.uom),
-                    const SizedBox(width: 6),
-                    _PillChip(
-                        label: 'x${qtyFmt.format(item.totalQty)}'),
                     const Spacer(),
                     Text(
-                      'RM ${amtFmt.format(item.unitPrice)}/unit',
+                      '$currency ${amtFmt.format(item.totalAmt)}',
                       style: TextStyle(fontSize: 12, color: muted),
                     ),
                   ],
