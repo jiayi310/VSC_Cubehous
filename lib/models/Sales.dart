@@ -80,6 +80,7 @@ class SalesDetailLine {
   final int? locationID;
   final String? location;
   String? image;
+  final String? serialNo;
 
   SalesDetailLine({
     required this.dtlID,
@@ -101,6 +102,7 @@ class SalesDetailLine {
     this.locationID,
     this.location,
     this.image,
+    required this.serialNo,
   });
 
   factory SalesDetailLine.fromJson(Map<String, dynamic> json) =>
@@ -123,6 +125,7 @@ class SalesDetailLine {
         taxAmt: _toD(json['taxAmt']),
         locationID: json['locationID'] as int?,
         location: json['location'] as String?,
+        serialNo: json['serialNo'] as String?,
       );
 }
 

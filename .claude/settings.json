@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xcrun simctl:*)",
+      "Bash(flutter run:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}

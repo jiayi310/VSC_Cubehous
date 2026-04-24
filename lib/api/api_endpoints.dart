@@ -111,6 +111,13 @@ class ApiEndpoints {
   static const String getReceivingReport = '/Report/GetReceivingReport';
   static const String getReceivingPurchaseList = '/Purchase/GetReceivingPurchaseList';
 
+  // ── Packing ───────────────────────────────────
+  static const String getPackingList = '/Packing/GetPackingListByCompanyId';
+  static const String getPacking = '/Packing/GetPacking';
+  static const String createPacking = '/Packing/CreatePacking';
+  static const String removePacking= '/Packing/RemovePacking';
+  static const String getPackingReport = '/Report/GetPackingReport';
+
   // ── Sales Agent ─────────────────────────────────
   static const String getSalesAgentList = '/SalesAgent/GetSalesAgentList';
 
@@ -140,6 +147,12 @@ class ApiEndpoints {
   static const String updateInbound = '/Inbound/UpdateInbound';
   static const String removeInbound= '/Inbound/RemoveInbound';
   static const String getInboundReport = '/Report/GetInboundReport';
+
+  // ── Put Away ──────────────────────────────────
+  static const String getPutAwayList = '/PutAway/GetPutAwayListByCompanyId';
+  static const String getPutAway = '/PutAway/GetPutAway';
+  static const String createPutAway = '/PutAway/CreatePutAway';
+  static const String removePutAway = '/PutAway/RemovePutAway';
 
   // ── Stock Filter Options ────────────────────────
   static const String getStockGroupList = '/StockGroup/GetStockGroupListByCompanyId';

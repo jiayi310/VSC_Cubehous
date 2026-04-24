@@ -1,31 +1,32 @@
-import 'package:cubehous/api/api_endpoints.dart';
-import 'package:cubehous/api/base_client.dart';
-import 'package:cubehous/common/direction_chip.dart';
-import 'package:cubehous/common/dots_loading.dart';
-import 'package:cubehous/common/session_manager.dart';
-import 'package:cubehous/models/inbound.dart';
+import 'package:cubehous/common/pagination_bar.dart';
+import 'package:cubehous/models/packing.dart';
 import 'package:cubehous/view/Common/common_dialog.dart';
+import 'package:cubehous/view/Warehouse/Packing/packing_detail.dart';
+import 'package:cubehous/view/Warehouse/Packing/packing_form.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:intl/intl.dart';
+import '../../../api/api_endpoints.dart';
+import '../../../api/base_client.dart';
 import '../../../common/date_pill.dart';
-import '../../../common/pagination_bar.dart';
-import 'inbound_detail.dart';
-import 'inbound_form.dart';
+import '../../../common/direction_chip.dart';
+import '../../../common/dots_loading.dart';
+import '../../../common/session_manager.dart';
 
 const _sortOptions = [
   ('Doc No', 'DocNo'),
   ('Doc Date', 'DocDate'),
+  ('Customer', 'CustomerName'),
 ];
 
-class InboundListPage extends StatefulWidget {
-  const InboundListPage({super.key});
+class PackingListPage extends StatefulWidget {
+  const PackingListPage({super.key});
 
   @override
-  State<InboundListPage> createState() => _InboundListPageState();
+  State<PackingListPage> createState() => _PackingListPageState();
 }
 
-class _InboundListPageState extends State<InboundListPage> {
+class _PackingListPageState extends State<PackingListPage> {
   // Session
   String _apiKey = '';
   String _companyGUID = '';
@@ -39,19 +40,19 @@ class _InboundListPageState extends State<InboundListPage> {
   int _totalPages = 1;
   int _totalCount = 0;
 
-    // Data
-  List<InboundListItem> _items = [];
+  // Data
+  List<PackingListItem> _items = [];
   bool _isInitialized = false;
   bool _isLoading = false;
   bool _hasDraft = false;
   String? _error;
 
+  // Search & sort
   final _searchController = TextEditingController();
-   String _searchQuery = '';
+  String _searchQuery = '';
   String _sortBy = 'DocNo';
   bool _sortAsc = false;
-  String _docTypeFilter = 'All';
-  
+
   // Date filter
   DateTime _fromDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
   DateTime _toDate = DateTime.now();
@@ -63,8 +64,6 @@ class _InboundListPageState extends State<InboundListPage> {
 
   int get _activeFilters => (_sortBy != 'DocNo' ? 1 : 0) + (!_sortAsc ? 0 : 1);
 
-  static const _docTypeFilters = ['All', 'RCV', 'PUT'];
-
   @override
   void initState() {
     super.initState();
@@ -74,7 +73,7 @@ class _InboundListPageState extends State<InboundListPage> {
   @override
   void dispose() {
     _searchController.dispose();
-     _scrollController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -86,8 +85,8 @@ class _InboundListPageState extends State<InboundListPage> {
       SessionManager.getUserSessionID(),
       SessionManager.getUserAccessRight(),
       SessionManager.getItemsPerPage(),
-      SessionManager.getSalesDecimalPoint(),
       SessionManager.getDateFormat(),
+      SessionManager.getSalesDecimalPoint(),
       SessionManager.getCurrencySymbol(),
     ]);
     _apiKey = results[0] as String;
@@ -96,26 +95,26 @@ class _InboundListPageState extends State<InboundListPage> {
     _userSessionID = results[3] as String;
     _accessRights = results[4] as List<String>;
     _itemsPerPage = results[5] as int;
-    final dp = results[6] as int;
-    _amtFmt = NumberFormat('#,##0.${'0' * dp}');
-    final de = results[7] as String;
+    final de = results[6] as String;
     _dateFmt = DateFormat(de);
+    final dp = results[7] as int;
+    _amtFmt = NumberFormat('#,##0.${'0' * dp}');
     _currency = results[8] as String;
     await Future.wait([
-      _fetchInbound(page: 0),
+      _fetchPacking(page: 0),
       _refreshDraftFlag(),
     ]);
     if (mounted) setState(() => _isInitialized = true);
   }
 
   Future<void> _refreshDraftFlag() async {
-    final has = await SessionManager.hasInboundDraft();
+    final has = await SessionManager.hasPackingDraft();
     if (mounted) setState(() => _hasDraft = has);
   }
 
   bool _hasAccess(String right) => _accessRights.contains(right);
 
-  Future<void> _fetchInbound({required int page}) async {
+  Future<void> _fetchPacking({required int page}) async {
     _apiKey = await SessionManager.getApiKey();
     _companyGUID = await SessionManager.getCompanyGUID();
     _userSessionID = await SessionManager.getUserSessionID();
@@ -126,7 +125,7 @@ class _InboundListPageState extends State<InboundListPage> {
     });
     try {
       final response = await BaseClient.post(
-        ApiEndpoints.getInboundList,
+        ApiEndpoints.getPackingList,
         body: {
           'apiKey': _apiKey,
           'companyGUID': _companyGUID,
@@ -143,7 +142,7 @@ class _InboundListPageState extends State<InboundListPage> {
         },
       );
 
-      final result = InboundResponse.fromJson(response as Map<String, dynamic>);
+      final result = PackingResponse.fromJson(response as Map<String, dynamic>);
       final items = result.data ?? [];
       final totalRecord = result.pagination?.totalRecord ?? items.length;
       final pageSize = result.pagination?.pageSize ?? _itemsPerPage;
@@ -167,16 +166,16 @@ class _InboundListPageState extends State<InboundListPage> {
 
   void _onSearchSubmit(String value) {
     setState(() => _searchQuery = value.trim());
-    _fetchInbound(page: 0);
+    _fetchPacking(page: 0);
   }
 
-  Future<bool> _deleteDoc(String module, int docID) async {
+  Future<bool> _deletePacking(int docID) async {
     _apiKey = await SessionManager.getApiKey();
     _companyGUID = await SessionManager.getCompanyGUID();
     _userSessionID = await SessionManager.getUserSessionID();
     try {
       await BaseClient.post(
-        ApiEndpoints.removeInbound,
+        ApiEndpoints.removePacking,
         body: {
           'apiKey': _apiKey,
           'companyGUID': _companyGUID,
@@ -199,7 +198,7 @@ class _InboundListPageState extends State<InboundListPage> {
     }
   }
 
-  Future<void> _onRefresh() => _fetchInbound(page: 0);
+  Future<void> _onRefresh() => _fetchPacking(page: 0);
 
   Future<void> _pickFromDate() async {
     final picked = await showDatePicker(
@@ -210,7 +209,7 @@ class _InboundListPageState extends State<InboundListPage> {
     );
     if (picked != null) {
       setState(() => _fromDate = picked);
-      _fetchInbound(page: 0);
+      _fetchPacking(page: 0);
     }
   }
 
@@ -223,7 +222,7 @@ class _InboundListPageState extends State<InboundListPage> {
     );
     if (picked != null) {
       setState(() => _toDate = picked);
-      _fetchInbound(page: 0);
+      _fetchPacking(page: 0);
     }
   }
 
@@ -240,14 +239,14 @@ class _InboundListPageState extends State<InboundListPage> {
             _sortBy = sortBy;
             _sortAsc = sortAsc;
           });
-          _fetchInbound(page: 0);
+          _fetchPacking(page: 0);
         },
         onReset: () {
           setState(() {
             _sortBy = 'DocNo';
             _sortAsc = true;
           });
-          _fetchInbound(page: 0);
+          _fetchPacking(page: 0);
         },
       ),
     );
@@ -259,8 +258,6 @@ class _InboundListPageState extends State<InboundListPage> {
       return const Scaffold(body: Center(child: DotsLoading()));
     }
     final primary = Theme.of(context).colorScheme.primary;
-    final cs = Theme.of(context).colorScheme;
-    
     return Scaffold(
       appBar: AppBar(
         title: GestureDetector(
@@ -271,28 +268,27 @@ class _InboundListPageState extends State<InboundListPage> {
                   curve: Curves.easeOut);
             }
           },
-          child: const Text('Inbound',
+          child: const Text('Packing',
               style: TextStyle(fontWeight: FontWeight.w600)),
         ),
         centerTitle: true,
         actions: [
           IconButton(
             icon: const Icon(Icons.add),
-            tooltip: 'New Inbound',
+            tooltip: 'New Packing',
             onPressed: () async {
-              // if (!_hasAccess('QUOTATION_ADD')) {
-              //   CommonDialog.showNoAccessRightDialog(context);
-              //   return;
-              // }
+              if (!_hasAccess('PACKING_ADD')) {
+                CommonDialog.showNoAccessRightDialog(context);
+                return;
+              }
               final created = await Navigator.push<bool>(
                 context,
-                MaterialPageRoute(
-                    builder: (_) => const InboundFormPage()),
+                MaterialPageRoute(builder: (_) => const PackingFormPage()),
               );
-              if (created == true) _fetchInbound(page: 0);
+              if (created == true) _fetchPacking(page: 0);
               _refreshDraftFlag();
             },
-          )
+          ),
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(104),
@@ -303,19 +299,23 @@ class _InboundListPageState extends State<InboundListPage> {
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
                 child: Row(
                   children: [
-                    Expanded(child: DatePill(
-                      label: 'From',
-                      date: _dateFmt.format(_fromDate),
-                      onTap: _pickFromDate,
-                      primary: primary,
-                    )),
+                    Expanded(
+                      child: DatePill(
+                        label: 'From',
+                        date: _dateFmt.format(_fromDate),
+                        onTap: _pickFromDate,
+                        primary: primary,
+                      ),
+                    ),
                     const SizedBox(width: 8),
-                    Expanded(child: DatePill(
-                      label: 'To',
-                      date: _dateFmt.format(_toDate),
-                      onTap: _pickToDate,
-                      primary: primary,
-                    )),
+                    Expanded(
+                      child: DatePill(
+                        label: 'To',
+                        date: _dateFmt.format(_toDate),
+                        onTap: _pickToDate,
+                        primary: primary,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -332,14 +332,14 @@ class _InboundListPageState extends State<InboundListPage> {
                         onSubmitted: _onSearchSubmit,
                         onChanged: (v) => setState(() {}),
                         decoration: InputDecoration(
-                          hintText: 'Search inbounds...',
+                          hintText: 'Search packing...',
                           suffixIcon: _searchController.text.isNotEmpty
                               ? IconButton(
                                   icon: const Icon(Icons.clear, size: 18),
                                   onPressed: () {
                                     _searchController.clear();
                                     setState(() => _searchQuery = '');
-                                    _fetchInbound(page: 0);
+                                    _fetchPacking(page: 0);
                                   },
                                 )
                               : null,
@@ -408,8 +408,8 @@ class _InboundListPageState extends State<InboundListPage> {
                                 ),
                               ),
                             ),
-                        ],
-                      ),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -417,60 +417,14 @@ class _InboundListPageState extends State<InboundListPage> {
           ),
         ),
       ),
-      body: Column(
-        children: [
-          // ── DocType filter chips ──────────────────────────────────
-          Container(
-            height: 46,
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(
-                    color: cs.outline.withValues(alpha: 0.12)),
-              ),
-            ),
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
-              itemCount: _docTypeFilters.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
-              itemBuilder: (_, i) {
-                final t = _docTypeFilters[i];
-                final selected = _docTypeFilter == t;
-                return FilterChip(
-                  label: Text(t,
-                      style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: selected
-                              ? FontWeight.w600
-                              : FontWeight.normal)),
-                  selected: selected,
-                  onSelected: (_) =>
-                      setState(() => _docTypeFilter = t),
-                  selectedColor: primary.withValues(alpha: 0.12),
-                  checkmarkColor: primary,
-                  side: BorderSide(
-                      color: selected
-                          ? primary
-                          : cs.outline.withValues(alpha: 0.35)),
-                  backgroundColor: Colors.transparent,
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  visualDensity: VisualDensity.compact,
-                );
-              },
-            ),
-          ),
-
-          // ── List ─────────────────────────────────────────────────
-          Expanded(child: _buildBody(cs, primary)),
-        ],
-      ),
+      body: _buildBody(),
     );
   }
 
-  Widget _buildBody(ColorScheme cs, Color primary) {
+  Widget _buildBody() {
     if (_isLoading) return const Center(child: DotsLoading());
     if (_error != null) return _buildError();
+    final primary = Theme.of(context).colorScheme.primary;
     final start = _currentPage * _itemsPerPage + 1;
     final end = ((_currentPage + 1) * _itemsPerPage).clamp(0, _totalCount);
     return Column(
@@ -479,13 +433,13 @@ class _InboundListPageState extends State<InboundListPage> {
           onContinue: () async {
             await Navigator.push<bool>(
               context,
-              MaterialPageRoute(builder: (_) => const InboundFormPage()),
+              MaterialPageRoute(builder: (_) => const PackingFormPage()),
             );
-            _fetchInbound(page: 0);
+            _fetchPacking(page: 0);
             _refreshDraftFlag();
           },
           onDiscard: () async {
-            await SessionManager.clearInboundDraft();
+            await SessionManager.clearPackingDraft();
             setState(() => _hasDraft = false);
           },
         ),
@@ -498,26 +452,30 @@ class _InboundListPageState extends State<InboundListPage> {
           totalPages: _totalPages,
           isLoading: _isLoading,
           primary: primary,
-          onPrev: _currentPage > 0 ? () => _fetchInbound(page: _currentPage - 1) : null,
-          onNext: _currentPage < _totalPages - 1 ? () => _fetchInbound(page: _currentPage + 1) : null,
+          onPrev: _currentPage > 0
+              ? () => _fetchPacking(page: _currentPage - 1)
+              : null,
+          onNext: _currentPage < _totalPages - 1
+              ? () => _fetchPacking(page: _currentPage + 1)
+              : null,
         ),
       ],
     );
   }
 
-  Future<void> _onEditTap(InboundListItem item) async {
+  Future<void> _onEditTap(PackingListItem item) async {
     _apiKey = await SessionManager.getApiKey();
     _companyGUID = await SessionManager.getCompanyGUID();
     _userSessionID = await SessionManager.getUserSessionID();
-    if (!_hasAccess('QUOTATION_EDIT')) {
+    if (!_hasAccess('PACKING_EDIT')) {
       if (!mounted) return;
       CommonDialog.showNoAccessRightDialog(context);
       return;
     }
-    InboundDoc? doc;
+    PackingDoc? doc;
     try {
       final json = await BaseClient.post(
-        ApiEndpoints.getInbound,
+        ApiEndpoints.getPacking,
         body: {
           'apiKey': _apiKey,
           'companyGUID': _companyGUID,
@@ -526,13 +484,13 @@ class _InboundListPageState extends State<InboundListPage> {
           'docID': item.docID,
         },
       );
-      doc = InboundDoc.fromJson(json as Map<String, dynamic>);
+      doc = PackingDoc.fromJson(json as Map<String, dynamic>);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
           ..showSnackBar(SnackBar(
-            content: Text('Failed to load quotation: $e'),
+            content: Text('Failed to load packing: $e'),
             behavior: SnackBarBehavior.floating,
           ));
       }
@@ -542,26 +500,26 @@ class _InboundListPageState extends State<InboundListPage> {
     final updated = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => InboundFormPage(initialDoc: doc),
+        builder: (_) => PackingFormPage(initialDoc: doc),
       ),
     );
-    if (updated == true && mounted) _fetchInbound(page: _currentPage);
+    if (updated == true && mounted) _fetchPacking(page: _currentPage);
   }
 
-  Future<void> _onDeleteTap(InboundListItem item) async {
-    if (!_hasAccess('QUOTATION_DELETE')) {
+  Future<void> _onDeleteTap(PackingListItem item) async {
+    if (!_hasAccess('PACKING_DELETE')) {
       CommonDialog.showNoAccessRightDialog(context);
       return;
     }
-    final confirmed = await CommonDialog.confirmDeleteDialog(context, item.docNo, 'Quotation');
+    final confirmed = await CommonDialog.confirmDeleteDialog(context, item.docNo, 'Packing');
     if (confirmed != true) return;
-    final ok = await _deleteDoc(item.docType, item.docID);
+    final ok = await _deletePacking(item.docID);
     if (ok && mounted) {
       setState(() => _items.removeWhere((e) => e.docID == item.docID));
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(const SnackBar(
-          content: Text('Quotation deleted'),
+          content: Text('Packing deleted'),
           behavior: SnackBarBehavior.floating,
         ));
     }
@@ -622,7 +580,7 @@ class _InboundListPageState extends State<InboundListPage> {
                 ),
               ],
             ),
-            child: InboundTile(
+            child: _ItemTile(
               item: item,
               amtFmt: _amtFmt,
               dateFmt: _dateFmt,
@@ -631,10 +589,10 @@ class _InboundListPageState extends State<InboundListPage> {
                 final result = await Navigator.push<bool>(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => InboundDetailPage(docID: item.docID),
+                    builder: (_) => PackingDetailPage(docID: item.docID),
                   ),
                 );
-                if (result == true && mounted) _fetchInbound(page: _currentPage);
+                if (result == true && mounted) _fetchPacking(page: _currentPage);
               },
             ),
           );
@@ -643,7 +601,7 @@ class _InboundListPageState extends State<InboundListPage> {
       ),
     );
   }
-
+  
   Widget _buildError() {
     return Center(
       child: Padding(
@@ -658,7 +616,7 @@ class _InboundListPageState extends State<InboundListPage> {
                     .error
                     .withValues(alpha: 0.6)),
             const SizedBox(height: 14),
-            const Text('Failed to load inbounds',
+            const Text('Failed to load packing',
                 style:
                     TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
@@ -672,7 +630,7 @@ class _InboundListPageState extends State<InboundListPage> {
                         .withValues(alpha: 0.4))),
             const SizedBox(height: 16),
             FilledButton.icon(
-              onPressed: () => _fetchInbound(page: 0),
+              onPressed: () => _fetchPacking(page: 0),
               icon: const Icon(Icons.refresh),
               label: const Text('Retry'),
             ),
@@ -689,7 +647,7 @@ class _InboundListPageState extends State<InboundListPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.receipt_long_outlined,
+            Icon(Icons.receipt_outlined,
                 size: 52,
                 color: Theme.of(context)
                     .colorScheme
@@ -699,7 +657,7 @@ class _InboundListPageState extends State<InboundListPage> {
             Text(
               _searchQuery.isNotEmpty
                   ? 'No results for "$_searchQuery"'
-                  : 'No inbounds found',
+                  : 'No packing found',
               style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
@@ -715,17 +673,18 @@ class _InboundListPageState extends State<InboundListPage> {
   }
 }
 
-// ── Inbound tile (ready for when API is wired up) ─────────────────────
+// ─────────────────────────────────────────────────────────────────────
+// Packing Tile
+// ─────────────────────────────────────────────────────────────────────
 
-class InboundTile extends StatelessWidget {
-  final InboundListItem item;
+class _ItemTile extends StatelessWidget {
+  final PackingListItem item;
   final NumberFormat amtFmt;
   final DateFormat dateFmt;
   final String currency;
   final VoidCallback onTap;
 
-  const InboundTile({
-    super.key,
+  const _ItemTile({
     required this.item,
     required this.amtFmt,
     required this.dateFmt,
@@ -733,21 +692,11 @@ class InboundTile extends StatelessWidget {
     required this.onTap,
   });
 
-  static Color _typeColor(String type) {
-    switch (type) {
-      case 'GRN':
-        return const Color(0xFF1565C0);
-      case 'PUT':
-        return const Color(0xFF00695C);
-      default:
-        return const Color(0xFF546E7A);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final typeColor = _typeColor(item.docType);
+    final primary = Theme.of(context).colorScheme.primary;
+    final muted =
+        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45);
 
     DateTime? docDate;
     try {
@@ -757,54 +706,89 @@ class InboundTile extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
           border: Border(
-            bottom: BorderSide(color: cs.outline.withValues(alpha: 0.1)),
+            bottom: BorderSide(
+              color: Theme.of(context)
+                  .colorScheme
+                  .outline
+                  .withValues(alpha: 0.08),
+            ),
           ),
         ),
         child: Row(
           children: [
-            // DocType badge
+            // Doc icon
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              width: 44,
+              height: 44,
               decoration: BoxDecoration(
-                color: typeColor.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(6),
+                color: item.isVoid
+                    ? Colors.red.withValues(alpha: 0.1)
+                    : primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
               ),
-              child: Text(
-                item.docType,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  color: typeColor,
-                  letterSpacing: 0.4,
-                ),
+              child: Icon(
+                Icons.receipt_outlined,
+                size: 22,
+                color: item.isVoid ? Colors.red : primary,
               ),
             ),
-            const SizedBox(width: 12),
-            // Doc info
+            const SizedBox(width: 14),
+            // Content
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(item.docNo,
-                      style: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 2),
+                  // Row 1: DocNo + VOID badge | Date
+                  Row(
+                    children: [
+                      Text(
+                        item.docNo,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: primary,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      if (item.isVoid) _VoidBadge(),
+                      const Spacer(),
+                      Text(
+                        docDate != null ? dateFmt.format(docDate) : item.docDate,
+                        style: TextStyle(fontSize: 11, color: muted),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  // Row 2: Customer name
+                  Text(
+                    item.customerName,
+                    style: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w500),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  // Row 3: Shipping Method Desc
+                  Row(
+                    children: [
+                      Icon(Icons.delivery_dining, size: 12, color: muted),
+                        const SizedBox(width: 3),
+                        Expanded(
+                          child: Text(
+                            item.shippingMethodDescription,
+                            style: TextStyle(fontSize: 12, color: muted),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                  ),
                 ],
               ),
-            ),
-            // Date + status
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(docDate != null ? dateFmt.format(docDate) : item.docDate,
-                    style: TextStyle(
-                        fontSize: 11,
-                        color: cs.onSurface.withValues(alpha: 0.5))),
-                const SizedBox(height: 4),
-              ],
             ),
           ],
         ),
@@ -812,6 +796,7 @@ class InboundTile extends StatelessWidget {
     );
   }
 }
+
 
 class _DraftBanner extends StatelessWidget {
   final VoidCallback onContinue;
@@ -843,7 +828,7 @@ class _DraftBanner extends StatelessWidget {
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
                         color: primary)),
-                Text('You have a inbound in progress.',
+                Text('You have a packing in progress.',
                     style: TextStyle(
                         fontSize: 11,
                         color: primary.withValues(alpha: 0.7))),
@@ -876,6 +861,32 @@ class _DraftBanner extends StatelessWidget {
     );
   }
 }
+
+class _VoidBadge extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.red.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: const Text(
+        'VOID',
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w800,
+          color: Colors.red,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Sort bottom sheet
+// ─────────────────────────────────────────────────────────────────────
 
 class _SortSheet extends StatefulWidget {
   final String sortBy;
@@ -1033,4 +1044,3 @@ class _SortSheetState extends State<_SortSheet> {
     );
   }
 }
-

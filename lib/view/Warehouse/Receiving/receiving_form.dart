@@ -1,3 +1,4 @@
+import 'package:cubehous/view/Common/common_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
@@ -51,7 +52,8 @@ class _ReceivingLine {
 // ─────────────────────────────────────────────────────────────────────
 
 class ReceivingFormPage extends StatefulWidget {
-  const ReceivingFormPage({super.key});
+  final ReceivingDoc? initialDoc;
+  const ReceivingFormPage({super.key, this.initialDoc});
 
   @override
   State<ReceivingFormPage> createState() => _ReceivingFormPageState();
@@ -64,34 +66,35 @@ class _ReceivingFormPageState extends State<ReceivingFormPage> {
   int _userID = 0;
   String _userSessionID = '';
 
+  // Page state
+  bool _loading = true;
+  bool _saving = false;
+  bool _showImage = true;
+  bool _scanning = false;
+  bool _scanSearching = false;
+
+  // Section expand state
+  bool _docExpanded = true;
+  bool _notesExpanded = true;
+  bool _supplierExpanded = true;
+  bool _itemsExpanded = true;
+
   // Header state
   DateTime _docDate = DateTime.now();
   ReceivingPurchaseItem? _selectedPO;
-  int? _supplierID;
-  String _supplierCode = '';
-  String _supplierName = '';
-  String _address1 = '', _address2 = '', _address3 = '', _address4 = '';
-  String _phone = '', _fax = '', _email = '', _attention = '';
+  PurchaseDoc? _purchaseDoc;
+  bool _isLoadingPO = false;
 
+  // Notes fields
   final _descriptionCtrl = TextEditingController();
   final _remarkCtrl = TextEditingController();
 
   // Line items
   final List<_ReceivingLine> _lines = [];
 
-  bool _isSaving = false;
-  bool _isLoadingPO = false;
-  bool _scanning = false;
-  bool _scanSearching = false;
-
-  // Section expand state
-  bool _docExpanded = true;
-  bool _supplierExpanded = true;
-  bool _itemsExpanded = true;
-
+  NumberFormat _qtyFmt = NumberFormat('#,##0.##');
+  DateFormat _dateFmt = DateFormat('dd MMM yyyy');
   final _formScrollCtrl = ScrollController();
-  final _dateFmt = DateFormat('dd MMM yyyy');
-  final _qtyFmt = NumberFormat('#,##0.##');
 
   @override
   void initState() {
@@ -116,17 +119,193 @@ class _ReceivingFormPageState extends State<ReceivingFormPage> {
       SessionManager.getCompanyGUID(),
       SessionManager.getUserID(),
       SessionManager.getUserSessionID(),
+      SessionManager.getImageMode(),
+      SessionManager.getQuantityDecimalPoint(),
+      SessionManager.getDateFormat(),
     ]);
-    _apiKey = results[0] as String;
-    _companyGUID = results[1] as String;
-    _userID = results[2] as int;
+    _apiKey        = results[0] as String;
+    _companyGUID   = results[1] as String;
+    _userID        = results[2] as int;
     _userSessionID = results[3] as String;
-    if (mounted) setState(() {});
+    _showImage     = (results[4] as String) == 'show';
+    final dp       = results[5] as int;
+    _qtyFmt        = NumberFormat('#,##0.${'0' * dp}');
+    _dateFmt       = DateFormat(results[6] as String);
+    // if (widget.initialDoc == null) await _checkAndRestoreDraft();
+    if (mounted) setState(() => _loading = false);
+  }
+
+  // ── Draft ─────────────────────────────────────────────────────────────
+
+  Future<void> _saveDraft() async {
+    final draft = {
+
+    };
+    // await SessionManager.saveReceivingraft(jsonEncode(draft));
+  }
+
+  // void _restoreDraftFields(Map<String, dynamic> j) {
+  //   _docDate = DateTime.tryParse(j['docDate'] as String? ?? '') ?? DateTime.now();
+  //   _descriptionCtrl.text = j['description'] as String? ?? '';
+  //   _remarkCtrl.text = j['remark'] as String? ?? '';
+  // }
+
+  // Future<void> _checkAndRestoreDraft() async {
+  //   final raw = await SessionManager.getReceivingDraft();
+  //   if (raw == null || raw.isEmpty) return;
+  //   try {
+  //     final j = jsonDecode(raw) as Map<String, dynamic>;
+  //     if (!mounted) return;
+  //     _restoreDraftFields(j);
+  //     final soMap = j['so'] as Map<String, dynamic>?;
+  //     final linesJson = j['lines'] as List<dynamic>? ?? [];
+  //     if (soMap != null) {
+  //       final docID = soMap['docID'] as int? ?? 0;
+  //       // Build a minimal SalesListItem so the SO card renders
+  //       _selectedPO = PurchaseListItem(
+  //         //TODO
+  //       );
+  //       setState(() => _isLoadingPO = true);
+  //       // Re-fetch SO so _salesDoc is populated (needed for save payload)
+  //       try {
+  //         final result = await BaseClient.post(
+  //           ApiEndpoints.getPurchase,
+  //           body: {
+  //             'apiKey': _apiKey,
+  //             'companyGUID': _companyGUID,
+  //             'userID': _userID,
+  //             'userSessionID': _userSessionID,
+  //             'docID': docID,
+  //           },
+  //         );
+  //         final doc = PurchaseDoc.fromJson(result as Map<String, dynamic>);
+  //         if (!mounted) return;
+  //         // Build lines from live SO data, apply saved pack qtys
+  //         final Map<int, String> savedQtys = {
+  //           for (final lj in linesJson)
+  //             (lj as Map<String, dynamic>)['soDetailID'] as int? ?? 0:
+  //                 (lj)['packQty'] as String? ?? '0',
+  //         };
+  //         final newLines = doc.purchaseDetails.map((d) {
+  //           final line = ;//TODO
+
+  //           line.packQtyCtrl.text = savedQtys[d.dtlID] ?? '0';
+  //           return line;
+  //         }).toList();
+  //         setState(() {
+  //           _purchaseDoc = doc;
+  //           _lines.addAll(newLines);
+  //           _isLoadingPO = false;
+  //         });
+  //       } catch (_) {
+  //         if (mounted) setState(() => _isLoadingPO = false);
+  //       }
+  //     } else {
+  //       setState(() {});
+  //     }
+  //   } catch (_) {
+  //     await SessionManager.clearPackingDraft();
+  //   }
+  // }
+
+  bool get _hasChanges =>
+      _selectedPO != null ||
+      _descriptionCtrl.text.isNotEmpty ||
+      _remarkCtrl.text.isNotEmpty;
+
+  Future<bool> _onWillPop() async {
+    if (!_hasChanges) return true;
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          contentPadding: EdgeInsets.zero,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 24),
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: cs.primary.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.save_outlined, size: 30, color: cs.primary),
+              ),
+              const SizedBox(height: 16),
+              const Text('Save Draft?',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  'Do you want to save your progress as a draft?',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: cs.onSurface.withValues(alpha: 0.6),
+                      height: 1.5),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Divider(height: 1, color: cs.outline.withValues(alpha: 0.15)),
+              IntrinsicHeight(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: const RoundedRectangleBorder(
+                              borderRadius: BorderRadius.only(
+                                  bottomLeft: Radius.circular(20))),
+                        ),
+                        onPressed: () => Navigator.pop(ctx, 'discard'),
+                        child: Text('Discard',
+                            style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: cs.onSurface.withValues(alpha: 0.5))),
+                      ),
+                    ),
+                    VerticalDivider(
+                        width: 1, color: cs.outline.withValues(alpha: 0.15)),
+                    Expanded(
+                      child: TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: const RoundedRectangleBorder(
+                              borderRadius: BorderRadius.only(
+                                  bottomRight: Radius.circular(20))),
+                        ),
+                        onPressed: () => Navigator.pop(ctx, 'save'),
+                        child: Text('Save Draft',
+                            style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: cs.primary)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (result == null) return false;
+    if (result == 'save') await _saveDraft();
+    if (result == 'discard') await SessionManager.clearPackingDraft();
+    return true;
   }
 
   // ── PO picker ───────────────────────────────────────────────────
 
-  Future<void> _openPOPicker() async {
+  Future<void> _pickPO() async {
     final po = await Navigator.push<ReceivingPurchaseItem>(
       context,
       MaterialPageRoute(
@@ -138,104 +317,67 @@ class _ReceivingFormPageState extends State<ReceivingFormPage> {
         ),
       ),
     );
-    if (po != null) await _onPOSelected(po);
-  }
-
-  Future<void> _onPOSelected(ReceivingPurchaseItem po) async {
+    if (po == null || !mounted) return;
     setState(() {
       _selectedPO = po;
+      _purchaseDoc = null;
+      for (final l in _lines) {
+        l.dispose();
+      }
+      _lines.clear();
       _isLoadingPO = true;
     });
+    await _fetchPODetails(po.docID);
+  }
 
+Future<void> _fetchPODetails(int docID) async {
     try {
-      final json = await BaseClient.post(
-        ApiEndpoints.getPurchase,
-        body: {
-          'apiKey': _apiKey,
-          'companyGUID': _companyGUID,
-          'userID': _userID,
-          'userSessionID': _userSessionID,
-          'docID': po.docID,
-        },
-      );
-      final doc = PurchaseDoc.fromJson(json as Map<String, dynamic>);
-
-      // Dispose existing PO-origin lines
-      final newLines = <_ReceivingLine>[];
-      for (final l in _lines) {
-        if (!l.fromPO) {
-          newLines.add(l);
-        } else {
-          l.dispose();
-        }
-      }
-
-      // Add PO items as pre-filled lines
-      for (final pl in doc.purchaseDetails) {
-        newLines.add(_ReceivingLine(
-          stockID: pl.stockID,
-          stockCode: pl.stockCode,
-          description: pl.description,
-          uom: pl.uom,
-          qty: pl.qty,
-          fromPO: true,
-        ));
-      }
-
-      setState(() {
-        _supplierID = null;
-        _supplierCode = doc.supplierCode;
-        _supplierName = doc.supplierName;
-        _address1 = doc.address1 ?? '';
-        _address2 = doc.address2 ?? '';
-        _address3 = doc.address3 ?? '';
-        _address4 = doc.address4 ?? '';
-        _phone = doc.phone ?? '';
-        _fax = doc.fax ?? '';
-        _email = doc.email ?? '';
-        _attention = doc.attention ?? '';
-        _lines
-          ..clear()
-          ..addAll(newLines);
-        _isLoadingPO = false;
-      });
+      // final result = await BaseClient.post(
+      //   ApiEndpoints.getPurchase,
+      //   body: {
+      //     'apiKey': _apiKey,
+      //     'companyGUID': _companyGUID,
+      //     'userID': _userID,
+      //     'userSessionID': _userSessionID,
+      //     'docID': docID,
+      //   },
+      // );
+      // final doc = PurchaseDoc.fromJson(result as Map<String, dynamic>);
+      // if (!mounted) return;
+      // final newLines = doc.purchaseDetails.map((d) {
+      //   return _ReceivingLine()
+      //     ..stockID: d.stockID
+      //     ..stockCode: d.stockCode
+      //     ..description: d.description
+      //     ..uom: d.uom
+      //     ..qty: d.qty
+      //     ..fromPO: true;
+      // }).toList();
+      // setState(() {
+      //   _purchaseDoc = doc;
+      //   _lines.addAll(newLines);
+      //   _isLoadingPO = false;
+      // });
     } catch (e) {
-      setState(() => _isLoadingPO = false);
       if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(
-            content: Text('Failed to load PO: $e'),
-            behavior: SnackBarBehavior.floating,
-          ));
+        setState(() => _isLoadingPO = false);
+        _showError('Failed to load purchase order: $e');
       }
     }
   }
 
-  void _clearPO() {
-    setState(() {
-      _selectedPO = null;
-      // Remove PO-origin lines
-      final kept = _lines.where((l) => !l.fromPO).toList();
-      for (final l in _lines) {
-        if (l.fromPO) l.dispose();
-      }
-      _lines
-        ..clear()
-        ..addAll(kept);
-      _supplierID = null;
-      _supplierCode = '';
-      _supplierName = '';
-      _address1 = '';
-      _address2 = '';
-      _address3 = '';
-      _address4 = '';
-      _phone = '';
-      _fax = '';
-      _email = '';
-      _attention = '';
-    });
+  // ── Pickers ───────────────────────────────────────────────────────────
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _docDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2030),
+    );
+    if (picked != null) setState(() => _docDate = picked);
   }
+
 
   // ── Item picker ─────────────────────────────────────────────────
 
@@ -402,89 +544,9 @@ class _ReceivingFormPageState extends State<ReceivingFormPage> {
     });
   }
 
-  // ── Save ─────────────────────────────────────────────────────────
+  // ── Barcode scan ───────────────────────────────────────────────
 
-  Future<void> _save() async {
-    if (_selectedPO == null) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(
-          content: Text('Please select a Purchase Order'),
-          behavior: SnackBarBehavior.floating,
-        ));
-      return;
-    }
-    if (_lines.isEmpty) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(
-          content: Text('Please add at least one item'),
-          behavior: SnackBarBehavior.floating,
-        ));
-      return;
-    }
-
-    setState(() => _isSaving = true);
-    try {
-      final details = _lines
-          .map((l) => {
-                'dtlID': l.dtlID,
-                'stockID': l.stockID ?? 0,
-                'stockBatchID': l.stockBatchID,
-                'batchNo': l.batchNo,
-                'stockCode': l.stockCode,
-                'description': l.description,
-                'uom': l.uom,
-                'qty': l.qty,
-              })
-          .toList();
-
-      await BaseClient.post(
-        ApiEndpoints.createReceiving,
-        body: {
-          'apiKey': _apiKey,
-          'companyGUID': _companyGUID,
-          'userID': _userID,
-          'userSessionID': _userSessionID,
-          'docDate': _docDate.toIso8601String(),
-          'supplierID': _supplierID ?? 0,
-          'supplierCode': _supplierCode,
-          'supplierName': _supplierName,
-          'address1': _address1,
-          'address2': _address2,
-          'address3': _address3,
-          'address4': _address4,
-          'phone': _phone,
-          'fax': _fax,
-          'email': _email,
-          'attention': _attention,
-          'description': _descriptionCtrl.text.trim(),
-          'remark': _remarkCtrl.text.trim(),
-          'purchaseDocID': _selectedPO?.docID ?? 0,
-          'receivingDetails': details,
-        },
-      );
-
-      if (mounted) {
-        Navigator.pop(context, true);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(
-            content: Text('Failed to save: $e'),
-            behavior: SnackBarBehavior.floating,
-          ));
-      }
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
-    }
-  }
-
-  // ── QR barcode scan ───────────────────────────────────────────────
-
-  Future<void> _onFormBarcodeDetected(String barcode) async {
+  Future<void> _onScanDetected(String barcode) async {
     if (_scanSearching) return;
     setState(() {
       _scanning = false;
@@ -540,14 +602,108 @@ class _ReceivingFormPageState extends State<ReceivingFormPage> {
     }
   }
 
+  // ── Save ─────────────────────────────────────────────────────────
+
+  Future<void> _save() async {
+    if (_selectedPO == null) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+          content: Text('Please select a Purchase Order'),
+          behavior: SnackBarBehavior.floating,
+        ));
+      return;
+    }
+    if (_lines.isEmpty) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+          content: Text('Please add at least one item'),
+          behavior: SnackBarBehavior.floating,
+        ));
+      return;
+    }
+
+    setState(() => _saving = true);
+    try {
+      final details = _lines
+          .map((l) => {
+                'dtlID': l.dtlID,
+                'stockID': l.stockID ?? 0,
+                'stockBatchID': l.stockBatchID,
+                'batchNo': l.batchNo,
+                'stockCode': l.stockCode,
+                'description': l.description,
+                'uom': l.uom,
+                'qty': l.qty,
+              })
+          .toList();
+
+      await BaseClient.post(
+        ApiEndpoints.createReceiving,
+        body: {
+          // 'apiKey': _apiKey,
+          // 'companyGUID': _companyGUID,
+          // 'userID': _userID,
+          // 'userSessionID': _userSessionID,
+          // 'docDate': _docDate.toIso8601String(),
+          // 'supplierID': _supplierID ?? 0,
+          // 'supplierCode': _supplierCode,
+          // 'supplierName': _supplierName,
+          // 'address1': _address1,
+          // 'address2': _address2,
+          // 'address3': _address3,
+          // 'address4': _address4,
+          // 'phone': _phone,
+          // 'fax': _fax,
+          // 'email': _email,
+          // 'attention': _attention,
+          // 'description': _descriptionCtrl.text.trim(),
+          // 'remark': _remarkCtrl.text.trim(),
+          // 'purchaseDocID': _selectedPO?.docID ?? 0,
+          // 'receivingDetails': details,
+        },
+      );
+
+      if (mounted) {
+        Navigator.pop(context, true);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text('Failed to save: $e'),
+            behavior: SnackBarBehavior.floating,
+          ));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  void _showError(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: Theme.of(context).colorScheme.error,
+      behavior: SnackBarBehavior.floating,
+    ));
+  }
+
   // ── Build ─────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    final cs = Theme.of(context).colorScheme;
-
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final nav = Navigator.of(context);
+        final canPop = await _onWillPop();
+        if (canPop && mounted) nav.pop();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: const Text('New Receiving',
             style: TextStyle(fontWeight: FontWeight.w600)),
@@ -566,7 +722,7 @@ class _ReceivingFormPageState extends State<ReceivingFormPage> {
             ),
         ],
       ),
-      body: _isLoadingPO
+      body: _loading
           ? const Center(child: DotsLoading())
           : Stack(
               children: [
@@ -580,24 +736,96 @@ class _ReceivingFormPageState extends State<ReceivingFormPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _buildDocSection(primary, cs),
-                              if (_supplierName.isNotEmpty)
-                                _buildSupplierSection(primary, cs),
-                              _buildItemsSection(primary, cs),
+                              // ── Document ──────────────────────────────
+                              FormSectionHeader(
+                                icon: Icons.receipt_long_outlined,
+                                title: 'Document',
+                                expanded: _docExpanded,
+                                onToggle: () => setState(
+                                    () => _docExpanded = !_docExpanded),
+                              ),
+                              AnimatedSize(
+                                duration:
+                                    const Duration(milliseconds: 220),
+                                curve: Curves.easeInOut,
+                                child: _docExpanded
+                                    ? _buildDocSection()
+                                    : const SizedBox.shrink(),
+                              ),
+
+                            // ── Supplier (after PO selected) ──────────
+                            if (_selectedPO != null) ...[
+                              FormSectionHeader(
+                                icon: Icons.person_outline,
+                                title: 'Supplier',
+                                expanded: _supplierExpanded,
+                                onToggle: () => setState(() =>
+                                    _supplierExpanded =
+                                        !_supplierExpanded),
+                              ),
+                              AnimatedSize(
+                                duration:
+                                    const Duration(milliseconds: 220),
+                                curve: Curves.easeInOut,
+                                child: _supplierExpanded
+                                    ? _buildSupplierSection()
+                                    : const SizedBox.shrink(),
+                              ),
+                            ],
+
+                            // ── Notes ─────────────────────────────────
+                            FormSectionHeader(
+                              icon: Icons.notes_outlined,
+                              title: 'Notes',
+                              expanded: _notesExpanded,
+                              onToggle: () => setState(
+                                  () => _notesExpanded = !_notesExpanded),
+                            ),
+                            AnimatedSize(
+                              duration:
+                                  const Duration(milliseconds: 220),
+                              curve: Curves.easeInOut,
+                              child: _notesExpanded
+                                  ? _buildNotesSection()
+                                  : const SizedBox.shrink(),
+                            ),
+                            
+                            // ── Items ─────────────────────────────────
+                            FormSectionHeader(
+                              icon: Icons.inventory_2_outlined,
+                              title: 'Packing Items',
+                              expanded: _itemsExpanded,
+                              onToggle: () => setState(
+                                  () => _itemsExpanded = !_itemsExpanded),
+                              badge: _lines.isEmpty
+                                  ? null
+                                  : '${_lines.length}',
+                            ),
+                            AnimatedSize(
+                              duration:
+                                  const Duration(milliseconds: 220),
+                              curve: Curves.easeInOut,
+                              child: _itemsExpanded
+                                  ? _buildItemsSection()
+                                  : const SizedBox.shrink(),
+                            ),
+
                               const SizedBox(height: 8),
                             ],
                           ),
                         ),
                       ),
                     ),
+
+                    // ── Save button ──────────────────────────────────
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
                       child: SizedBox(
                         width: double.infinity,
                         height: 50,
                         child: FilledButton(
-                          onPressed: _isSaving ? null : _save,
-                          child: _isSaving
+                          onPressed: _saving ? null : _save,
+                          child: _saving
                               ? const DotsLoading(dotSize: 6)
                               : const Text('Save',
                                   style: TextStyle(
@@ -610,7 +838,7 @@ class _ReceivingFormPageState extends State<ReceivingFormPage> {
                 ),
                 if (_scanning)
                   ScannerOverlay(
-                    onDetected: _onFormBarcodeDetected,
+                    onDetected: _onScanDetected,
                     onClose: () => setState(() => _scanning = false),
                   ),
                 if (_scanSearching)
@@ -620,286 +848,223 @@ class _ReceivingFormPageState extends State<ReceivingFormPage> {
                   ),
               ],
             ),
+    )
     );
   }
 
-  // ── Section header ────────────────────────────────────────────────
 
-  Widget _sectionHeader(IconData icon, String title,
-      {required bool expanded, required VoidCallback onToggle, String? badge}) {
-    final primary = Theme.of(context).colorScheme.primary;
-    return GestureDetector(
-      onTap: onToggle,
-      behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: const EdgeInsets.only(top: 20, bottom: 12),
-        child: Row(
-          children: [
-            Icon(icon, size: 16, color: primary),
-            const SizedBox(width: 6),
-            Text(title,
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    color: primary,
-                    letterSpacing: 0.6)),
-            if (badge != null) ...[
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                decoration: BoxDecoration(
-                  color: primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(badge,
-                    style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: primary)),
-              ),
-            ],
-            const SizedBox(width: 8),
-            Expanded(
-                child: Divider(
-                    color: primary.withValues(alpha: 0.2), thickness: 1)),
-            const SizedBox(width: 8),
-            AnimatedRotation(
-              turns: expanded ? 0 : -0.25,
-              duration: const Duration(milliseconds: 200),
-              child: Icon(Icons.keyboard_arrow_down_rounded,
-                  size: 18, color: primary.withValues(alpha: 0.6)),
+  // ── Section builders ──────────────────────────────────────────────
+
+  Widget _buildDocSection() {
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Date picker
+        FieldLabel(label: 'Date'),
+        InkWell(
+          onTap: _pickDate,
+          borderRadius: BorderRadius.circular(12),
+          child: _FieldBox(
+            child: Row(
+              children: [
+                const Icon(Icons.calendar_today_outlined, size: 18),
+                const SizedBox(width: 8),
+                Text(
+                  _dateFmt.format(_docDate),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500)),
+              ],
             ),
-          ],
+          ),
         ),
-      ),
-    );
-  }
-
-  // ── Document section ──────────────────────────────────────────────
-
-  Widget _buildDocSection(Color primary, ColorScheme cs) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionHeader(Icons.receipt_long_outlined, 'DOCUMENT',
-            expanded: _docExpanded,
-            onToggle: () =>
-                setState(() => _docExpanded = !_docExpanded)),
-        AnimatedSize(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeInOut,
-          child: _docExpanded
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Date picker
-                    _FieldLabel(label: 'Date'),
-                    InkWell(
-                      onTap: _pickDate,
-                      borderRadius: BorderRadius.circular(12),
-                      child: _FieldBox(
-                        child: Row(
-                          children: [
-                            const Icon(Icons.calendar_today_outlined, size: 18),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(_dateFmt.format(_docDate),
-                                  style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w500)),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    // Description
-                    _FieldLabel(label: 'Description'),
-                    TextFormField(
-                      controller: _descriptionCtrl,
-                      maxLines: 1,
-                      style: const TextStyle(fontSize: 14),
-                      decoration: formInputDeco(context, hint: 'Optional'),
-                    ),
-                    const SizedBox(height: 12),
-                    // Remark
-                    _FieldLabel(label: 'Remark'),
-                    TextFormField(
-                      controller: _remarkCtrl,
-                      maxLines: 1,
-                      style: const TextStyle(fontSize: 14),
-                      decoration: formInputDeco(context, hint: 'Optional'),
-                    ),
-                    const SizedBox(height: 12),
-                    // PO picker
-                    _FieldLabel(label: 'PO Ref *'),
-                    InkWell(
-                      onTap: _openPOPicker,
-                      borderRadius: BorderRadius.circular(12),
-                      child: _FieldBox(
-                        child: Row(
-                          children: [
-                            const Icon(Icons.receipt_outlined, size: 18),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: _selectedPO != null
-                                  ? Text(
-                                      _selectedPO!.docNo,
-                                      style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w600,
-                                          color: primary),
-                                    )
-                                  : Text(
-                                      'Select Purchase Order',
-                                      style: TextStyle(
-                                          fontSize: 14,
-                                          color: cs.onSurface
-                                              .withValues(alpha: 0.4)),
-                                    ),
-                            ),
-                            if (_selectedPO != null)
-                              GestureDetector(
-                                onTap: _clearPO,
-                                child: Icon(Icons.close_rounded,
-                                    size: 18,
-                                    color: cs.onSurface.withValues(alpha: 0.5)),
-                              )
-                            else
-                              Icon(Icons.chevron_right_rounded,
-                                  size: 18,
-                                  color: cs.onSurface.withValues(alpha: 0.4)),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                  ],
-                )
-              : const SizedBox.shrink(),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _pickDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _docDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2030),
-    );
-    if (picked != null) setState(() => _docDate = picked);
-  }
-
-  // ── Supplier section ──────────────────────────────────────────────
-
-  Widget _buildSupplierSection(Color primary, ColorScheme cs) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionHeader(Icons.business_outlined, 'SUPPLIER',
-            expanded: _supplierExpanded,
-            onToggle: () =>
-                setState(() => _supplierExpanded = !_supplierExpanded)),
-        AnimatedSize(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeInOut,
-          child: _supplierExpanded
-              ? Container(
-                  margin: const EdgeInsets.only(bottom: 4),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: primary.withValues(alpha: 0.04),
-                    border: Border.all(
-                        color: cs.outline.withValues(alpha: 0.18)),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+        const SizedBox(height: 12),
+        
+        // PO picker
+        FieldLabel(label: 'PO Ref *'),
+        InkWell(
+          onTap: _isLoadingPO ? null : _pickPO,
+          borderRadius: BorderRadius.circular(12),
+          child: FieldBox(
+            child: _isLoadingPO
+              ? const SizedBox(
+                height: 20,
+                child: Center(child: DotsLoading()))
+                : Row(
                     children: [
-                      Text(
-                        _supplierName,
-                        style: const TextStyle(
-                            fontSize: 14, fontWeight: FontWeight.w700),
+                      const Icon(Icons.receipt_outlined, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _selectedPO == null
+                            ? Text(
+                                'Select purchase order',
+                                style: TextStyle(
+                                    fontSize: 14,
+                                    color: cs.onSurface
+                                        .withValues(alpha: 0.4)),
+                              )
+                            : Text(
+                                    _selectedPO!.docNo,
+                                    style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w800,
+                                        color: cs.primary),
+                                  ),
                       ),
-                      if (_supplierCode.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          _supplierCode,
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: cs.onSurface.withValues(alpha: 0.55)),
-                        ),
-                      ],
-                      if ([_address1, _address2, _address3, _address4]
-                          .any((a) => a.isNotEmpty)) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          [_address1, _address2, _address3, _address4]
-                              .where((a) => a.isNotEmpty)
-                              .join(', '),
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: cs.onSurface.withValues(alpha: 0.55)),
-                        ),
-                      ],
+                      if (_selectedPO != null)
+                        GestureDetector(
+                          onTap: () => setState(() {
+                            _selectedPO = null;
+                            // _poDoc = null;
+                            for (final l in _lines) {
+                              l.dispose();
+                            }
+                            _lines.clear();
+                          }),
+                          child: Icon(Icons.clear,
+                              size: 16,
+                              color: cs.onSurface
+                                  .withValues(alpha: 0.4)),
+                        )
+                      else
+                        Icon(Icons.chevron_right,
+                            size: 18,
+                            color: cs.onSurface
+                                .withValues(alpha: 0.3)),
                     ],
                   ),
-                )
-              : const SizedBox.shrink(),
+          ),
         ),
+        const SizedBox(height: 4),
       ],
     );
   }
 
-  // ── Items section ─────────────────────────────────────────────────
+  Widget _buildSupplierSection() {
+      final cs = Theme.of(context).colorScheme;
+      final primary = cs.primary;
+      final muted = cs.onSurface.withValues(alpha: 0.5);
+      final doc = _poDoc;
 
-  Widget _buildItemsSection(Color primary, ColorScheme cs) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 4),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: cs.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: cs.outline.withValues(alpha: 0.15)),
+        ),
+        child: doc == null
+          ? const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Center(child: DotsLoading()),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(doc.supplierCode,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: primary)
+                ),
+                const SizedBox(height: 2),
+                Text(doc.supplierName,
+                    style: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w700)),
+                if (_hasAddr([
+                  doc.address1,
+                  doc.address2,
+                  doc.address3,
+                  doc.address4
+                ])) ...[
+                  const SizedBox(height: 8),
+                  _infoRow(
+                      Icons.location_on_outlined,
+                      _joinAddr([
+                        doc.address1,
+                        doc.address2,
+                        doc.address3,
+                        doc.address4
+                      ]),
+                      muted),
+                ],
+              ],
+             ),
+    );
+  }
+
+  bool _hasAddr(List<String?> parts) =>
+      parts.any((p) => p != null && p.isNotEmpty);
+
+  String _joinAddr(List<String?> parts) =>
+      parts.where((p) => p != null && p.isNotEmpty).join(', ');
+
+  Widget _infoRow(IconData icon, String text, Color muted) => Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 14, color: muted),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(text,
+                style: TextStyle(fontSize: 12, color: muted, height: 1.4),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis),
+          ),
+        ],
+      );
+
+  Widget _buildNotesSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionHeader(
-          Icons.inventory_2_outlined,
-          'ITEMS',
-          expanded: _itemsExpanded,
-          onToggle: () => setState(() => _itemsExpanded = !_itemsExpanded),
-          badge: _lines.isNotEmpty ? '${_lines.length}' : null,
+        FieldLabel(label: 'Description'),
+        TextFormField(
+          controller: _descriptionCtrl,
+          maxLines: 1,
+          style: const TextStyle(fontSize: 14),
+          decoration: formInputDeco(context),
         ),
-        AnimatedSize(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeInOut,
-          child: _itemsExpanded
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (_lines.isEmpty)
-                      Container(
-                        padding: const EdgeInsets.symmetric(vertical: 32),
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                              color: cs.outline.withValues(alpha: 0.18)),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Center(
-                          child: Column(
-                            children: [
-                              Icon(Icons.inventory_2_outlined,
-                                  size: 40,
-                                  color: cs.onSurface.withValues(alpha: 0.2)),
-                              const SizedBox(height: 8),
-                              Text(
-                                'No items yet',
-                                style: TextStyle(
-                                    fontSize: 13,
-                                    color:
-                                        cs.onSurface.withValues(alpha: 0.4)),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                    else
+        const SizedBox(height: 12),
+        FieldLabel(label: 'Remark'),
+        TextFormField(
+          controller: _remarkCtrl,
+          maxLines: 1,
+          style: const TextStyle(fontSize: 14),
+          decoration: formInputDeco(context),
+        ),
+        const SizedBox(height: 4),
+      ],
+    );
+  }
+
+  Widget _buildItemsSection() {
+    final cs = Theme.of(context).colorScheme;
+    final primary = cs.primary;
+
+    if (_isLoadingPO) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 40),
+        child: Center(child: DotsLoading()),
+      );
+    }
+
+  if (_selectedPO != null){
+    if (_lines.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 28),
+        child: Center(
+          child: Text('No items in this sales order',
+              style: TextStyle(
+                  fontSize: 13,
+                  color: cs.onSurface.withValues(alpha: 0.4))),
+        ),
+      );
+    } else {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
                       ..._lines.asMap().entries.map((entry) {
                         final i = entry.key;
                         final line = entry.value;
@@ -953,11 +1118,12 @@ class _ReceivingFormPageState extends State<ReceivingFormPage> {
                       ),
                     ),
                   ],
-                )
-              : const SizedBox.shrink(),
-        ),
-      ],
-    );
+                );
+    }
+  }
+
+
+
   }
 
 }
@@ -1293,9 +1459,14 @@ class _POPickerPageState extends State<_POPickerPage> {
   String _sortBy = 'DocDate';
   bool _sortAsc = false;
 
+  DateFormat _dateFmt = DateFormat('dd MMM yyyy');
+
   @override
   void initState() {
     super.initState();
+    SessionManager.getDateFormat().then((fmt) {
+      if (mounted) setState(() => _dateFmt = DateFormat(fmt));
+    });
     _fetch(page: 0);
   }
 
@@ -1497,58 +1668,61 @@ class _POPickerPageState extends State<_POPickerPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Select Purchase Order',
+        title: const Text('Purchase Order',
             style: TextStyle(fontWeight: FontWeight.w600)),
         centerTitle: true,
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(60),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _searchCtrl,
-                    textInputAction: TextInputAction.search,
-                    onSubmitted: (_) => _fetch(page: 0),
-                    onChanged: (_) => setState(() {}),
-                    decoration: InputDecoration(
-                      hintText: 'Search by PO no. or supplier...',
-                      prefixIcon: const Icon(Icons.search, size: 20),
-                      suffixIcon: _searchCtrl.text.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.clear, size: 18),
-                              onPressed: () {
-                                _searchCtrl.clear();
-                                _fetch(page: 0);
-                              })
-                          : null,
-                      isDense: true,
-                      contentPadding:
-                          const EdgeInsets.symmetric(vertical: 10),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _searchCtrl,
+                      textInputAction: TextInputAction.search,
+                      onSubmitted: (_) => _fetch(page: 0),
+                      onChanged: (_) => setState(() {}),
+                      decoration: InputDecoration(
+                        hintText: 'Search by PO no. or supplier...',
+                        prefixIcon: const Icon(Icons.search, size: 20),
+                        suffixIcon: _searchCtrl.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, size: 18),
+                                onPressed: () {
+                                  _searchCtrl.clear();
+                                  _fetch(page: 0);
+                                })
+                            : null,
+                        isDense: true,
+                        contentPadding:
+                            const EdgeInsets.symmetric(vertical: 10),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        filled: true,
                       ),
-                      filled: true,
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                InkWell(
-                  onTap: _openSortSheet,
-                  borderRadius: BorderRadius.circular(10),
-                  child: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: cs.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(10),
+                  const SizedBox(width: 8),
+                  InkWell(
+                    onTap: _openSortSheet,
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      width: 44,
+                      decoration: BoxDecoration(
+                        color: cs.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(Icons.sort_rounded,
+                          size: 20, color: primary),
                     ),
-                    child: Icon(Icons.sort_rounded,
-                        size: 20, color: primary),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -1639,37 +1813,39 @@ class _POPickerPageState extends State<_POPickerPage> {
                                             crossAxisAlignment:
                                                 CrossAxisAlignment.start,
                                             children: [
-                                              Text(
-                                                po.docNo,
-                                                style: TextStyle(
-                                                    fontSize: 13,
-                                                    fontWeight:
-                                                        FontWeight.w700,
-                                                    color: primary),
+                                              Row(
+                                                children: [
+                                                  Expanded(
+                                                    child: Text(
+                                                      po.docNo,
+                                                      style: TextStyle(
+                                                          fontSize: 13,
+                                                          fontWeight: FontWeight.w700,
+                                                          color: primary),
+                                                    ),
+                                                  ),
+                                                  if (d != null)
+                                                    Text(
+                                                      _dateFmt.format(d),
+                                                      style: TextStyle(
+                                                          fontSize: 11,
+                                                          color: cs.onSurface
+                                                              .withValues(alpha: 0.5)),
+                                                    ),
+                                                ],
                                               ),
                                               const SizedBox(height: 2),
                                               Text(
                                                 po.supplierName,
                                                 style: const TextStyle(
                                                     fontSize: 13,
-                                                    fontWeight:
-                                                        FontWeight.w500),
+                                                    fontWeight: FontWeight.w500),
                                                 maxLines: 1,
-                                                overflow:
-                                                    TextOverflow.ellipsis,
+                                                overflow: TextOverflow.ellipsis,
                                               ),
                                             ],
                                           ),
                                         ),
-                                        const SizedBox(width: 8),
-                                        if (d != null)
-                                          Text(
-                                            DateFormat('dd/MM/yyyy').format(d),
-                                            style: TextStyle(
-                                                fontSize: 11,
-                                                color: cs.onSurface
-                                                    .withValues(alpha: 0.5)),
-                                          ),
                                       ],
                                     ),
                                   ),

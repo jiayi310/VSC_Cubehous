@@ -6,9 +6,9 @@ import 'package:cubehous/view/General/Location/location_list.dart';
 import 'package:cubehous/view/General/Supplier/supplier_list.dart';
 import 'package:cubehous/view/Sales/Collection/collection_list.dart';
 import 'package:cubehous/view/Purchase/purchase_list.dart';
+import 'package:cubehous/view/Warehouse/Packing/packing_list.dart';
 import 'package:cubehous/view/Warehouse/Receiving/receiving_list.dart';
-import 'package:cubehous/view/Warehouse/Inbound/inbound_list.dart';
-import 'package:cubehous/view/Warehouse/Outbound/outbound_list.dart';
+import 'package:cubehous/view/Warehouse/PutAway/put_away_list.dart';
 import 'package:cubehous/view/Warehouse/StockAdjustment/stock_adjustment_list.dart';
 import 'package:cubehous/view/Warehouse/StockTake/stock_take_list.dart';
 import 'package:cubehous/view/Sales/Quotation/quotation_list.dart';
@@ -43,7 +43,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    // length 4 = Sales + Inbound + Outbound + General (defaults: both modules on)
+    _tabController = TabController(length: 4, vsync: this);
     _loadSession();
   }
 
@@ -62,6 +63,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       SessionManager.getCompanyModuleIdList(),
       SessionManager.getUserAccessRight(),
     ]);
+    if (!mounted) return;
     final username = results[0] as String;
     final companyName = results[1] as String;
     final profileImage = results[2] as String;
@@ -71,10 +73,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     final hasSales = modules.contains('SALES');
     final hasWms = modules.contains('WMS');
-    final tabCount = 1 + (hasSales ? 1 : 0) + (hasWms ? 1 : 0); // General is always shown
+    final tabCount = 1 + (hasSales ? 1 : 0) + (hasWms ? 2 : 0);
 
-    final oldController = _tabController;
-    final newController = TabController(length: tabCount, vsync: this);
+    // Swap controller only when the tab count genuinely changes.
+    if (_tabController.length != tabCount) {
+      final old = _tabController;
+      _tabController = TabController(length: tabCount, vsync: this);
+      WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
+    }
 
     setState(() {
       _username = username.isNotEmpty ? username : '-';
@@ -83,11 +89,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       _userIsActive = userIsActive;
       _hasSales = hasSales;
       _hasWms = hasWms;
-      _tabController = newController;
       _accessRights = accessRights;
     });
-
-    oldController.dispose();
   }
 
   String get _greeting {
@@ -114,34 +117,36 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           child: Column(
             children: [
               _GreetingBanner(
-              greeting: _greeting,
-              username: _username,
-              companyName: _companyName,
-              profileImage: _profileImage,
-              onTap: _showProfileSheet,
-            ),
-            TabBar(
-              controller: _tabController,
-              tabs: [
-                if (_hasSales) const Tab(text: 'Sales'),
-                if (_hasWms) const Tab(text: 'Warehouse'),
-                const Tab(text: 'General'),
-              ],
-            ),
-            Expanded(
-              child: TabBarView(
+                greeting: _greeting,
+                username: _username,
+                companyName: _companyName,
+                profileImage: _profileImage,
+                onTap: _showProfileSheet,
+              ),
+              TabBar(
                 controller: _tabController,
-                children: [
-                  if (_hasSales) _SalesTab(columnCount: _columnCount, onModuleTap: _onModuleTap),
-                  if (_hasWms) _WarehouseTab(columnCount: _columnCount, onModuleTap: _onModuleTap),
-                  _GeneralTab(columnCount: _columnCount, onModuleTap: _onModuleTap),
+                tabs: [
+                  if (_hasSales) const Tab(icon: Icon(Icons.attach_money_rounded, size: 23)),
+                  if (_hasWms) const Tab(icon: Icon(Icons.move_to_inbox_rounded, size: 23)),
+                  if (_hasWms) const Tab(icon: Icon(Icons.outbox_rounded, size: 23)),
+                  const Tab(icon: Icon(Icons.apps_rounded, size: 23)),
                 ],
               ),
-            ),
-          ],
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    if (_hasSales) _SalesTab(columnCount: _columnCount, onModuleTap: _onModuleTap),
+                    if (_hasWms) _InboundTab(columnCount: _columnCount, onModuleTap: _onModuleTap),
+                    if (_hasWms) _OutboundTab(columnCount: _columnCount, onModuleTap: _onModuleTap),
+                    _GeneralTab(columnCount: _columnCount, onModuleTap: _onModuleTap),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-    ),
     );
   }
 
@@ -248,17 +253,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         MaterialPageRoute(builder: (_) => const StockItemPage()),
       );
     } else if (module == 'Customers') {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const CustomerListPage()),
-      );
+      // Navigator.of(context).push(
+      //   MaterialPageRoute(builder: (_) => const CustomerListPage()),
+      // );
     } else if (module == 'Suppliers') {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const SupplierListPage()),
-      );
+      // Navigator.of(context).push(
+      //   MaterialPageRoute(builder: (_) => const SupplierListPage()),
+      // );
     } else if (module == 'Locations') {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const LocationListPage()),
-      );
+      // Navigator.of(context).push(
+      //   MaterialPageRoute(builder: (_) => const LocationListPage()),
+      // );
     } else if (module == 'Quotation') {
       if (!_hasAccess('QUOTATION_VIEW')) { _showNoAccessDialog(); return; }
       Navigator.of(context).push(
@@ -275,32 +280,39 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         MaterialPageRoute(builder: (_) => const CollectionListPage()),
       );
     } else if (module == 'Purchase Order') {
-      if (!_hasAccess('PURCHASE_VIEW')) { _showNoAccessDialog(); return; }
+      // if (!_hasAccess('PURCHASE_VIEW')) { _showNoAccessDialog(); return; }
+      // Navigator.of(context).push(
+      //   MaterialPageRoute(builder: (_) => const PurchaseListPage()),
+      // );
+    } else if (module == 'Receiving') {
+      if (!_hasAccess('RECEIVING_VIEW')) { _showNoAccessDialog(); return; }
       Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const PurchaseListPage()),
+        MaterialPageRoute(builder: (_) => const ReceivingListPage()),
       );
-    } else if (module == 'Inbound') {
+    } else if (module == 'Put Away') {
+      if (!_hasAccess('PUTAWAY_VIEW')) { _showNoAccessDialog(); return; }
       Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const InboundListPage()),
+        MaterialPageRoute(builder: (_) => const PutAwayListPage()),
       );
-    } else if (module == 'Outbound') {
+    } else if (module == 'Packing') {
+      if (!_hasAccess('PACKING_VIEW')) { _showNoAccessDialog(); return; }
       Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const OutboundListPage()),
+        MaterialPageRoute(builder: (_) => const PackingListPage()),
       );
     } else if (module == 'Stock Take') {
       if (!_hasAccess('STOCKTAKE_VIEW')) { _showNoAccessDialog(); return; }
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const StockTakeListPage()),
       );
+    } else if (module == 'Stock Transfer') {
+      // if (!_hasAccess('STOCKTRANSFER_VIEW')) { _showNoAccessDialog(); return; }
+      // Navigator.of(context).push(
+      //   MaterialPageRoute(builder: (_) => const StockTransferListPage()),
+      // );
     } else if (module == 'Stock Adjustment'){
       if (!_hasAccess('STOCKADJUSTMENT_VIEW')) { _showNoAccessDialog(); return; }
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const StockAdjustmentListPage()),
-      );
-    } else if (module == 'Receiving') {
-      if (!_hasAccess('RECEIVING_VIEW')) { _showNoAccessDialog(); return; }
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const ReceivingListPage()),
       );
     } else if (module == 'Analysis') {
       Navigator.of(context).push(
@@ -310,10 +322,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const ReportPage()),
       );
-    } else if (module == 'Put Away' ||
-        module == 'Picking' ||
-        module == 'Stock Transfer' ||
-        module == 'Stock Adjustment') {
+    } else if (
+        module == 'Picking') {
       _comingSoon(module);
     } else {
       _comingSoon(module);
@@ -361,136 +371,46 @@ class _SalesTab extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// Warehouse Tab (Inbound / Outbound / Inventory)
+// Inbound Tab
 // ─────────────────────────────────────────────
 
-class _WarehouseTab extends StatelessWidget {
+class _InboundTab extends StatelessWidget {
   final int Function(double) columnCount;
   final void Function(String) onModuleTap;
 
-  const _WarehouseTab({required this.columnCount, required this.onModuleTap});
+  const _InboundTab({required this.columnCount, required this.onModuleTap});
 
   @override
   Widget build(BuildContext context) {
-    final sections = [
-      _WarehouseSection(
-        label: 'Inbound & Outbound',
-        icon: Icons.swap_vert_rounded,
-        color: const Color(0xFF1565C0),
-        items: [
-          _ModuleItem('Inbound', 'assests/images/inbound.png',
-              () => onModuleTap('Inbound'),
-              iconData: Icons.move_to_inbox_rounded,
-              iconColor: const Color(0xFF1565C0)),
-          _ModuleItem('Outbound', 'assests/images/outbound.png',
-              () => onModuleTap('Outbound'),
-              iconData: Icons.outbox_rounded,
-              iconColor: const Color(0xFFE65100)),
-        ],
-      ),
-      _WarehouseSection(
-        label: 'Inventory',
-        icon: Icons.inventory_2_outlined,
-        color: const Color(0xFF2E7D32),
-        items: [
-          _ModuleItem('Stock Take', 'assests/images/stocktake.png',
-              () => onModuleTap('Stock Take')),
-          _ModuleItem('Stock Adjustment', 'assests/images/adjustment.png',
-              () => onModuleTap('Stock Adjustment')),
-          _ModuleItem('Receiving', 'assests/images/receiving.png',
-              () => onModuleTap('Receiving')),
-          // _ModuleItem('Picking', 'assests/images/picking.png',
-          //     () => onModuleTap('Picking')),
-          // _ModuleItem('Stock Transfer', 'assests/images/transfer.png',
-          //     () => onModuleTap('Stock Transfer')),
-        ],
-      ),
+    final modules = [
+      _ModuleItem('Receiving', 'assests/images/receiving.png',
+          () => onModuleTap('Receiving')),
+      _ModuleItem('Put Away', 'assests/images/putaway.png',
+          () => onModuleTap('Put Away')),
     ];
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final columns = columnCount(constraints.maxWidth);
-        return SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (final section in sections) ...[
-                _WarehoueSectionHeader(section: section),
-                const SizedBox(height: 12),
-                GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: columns,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                    childAspectRatio: 1.0,
-                  ),
-                  itemCount: section.items.length,
-                  itemBuilder: (_, i) => _ModuleCard(item: section.items[i]),
-                ),
-                const SizedBox(height: 24),
-              ],
-            ],
-          ),
-        );
-      },
-    );
+    return _ModuleGrid(items: modules, columnCount: columnCount);
   }
 }
 
-class _WarehouseSection {
-  final String label;
-  final IconData icon;
-  final Color color;
-  final List<_ModuleItem> items;
+// ─────────────────────────────────────────────
+// Outbound Tab
+// ─────────────────────────────────────────────
 
-  const _WarehouseSection({
-    required this.label,
-    required this.icon,
-    required this.color,
-    required this.items,
-  });
-}
+class _OutboundTab extends StatelessWidget {
+  final int Function(double) columnCount;
+  final void Function(String) onModuleTap;
 
-class _WarehoueSectionHeader extends StatelessWidget {
-  final _WarehouseSection section;
-  const _WarehoueSectionHeader({required this.section});
+  const _OutboundTab({required this.columnCount, required this.onModuleTap});
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Row(
-      children: [
-        Container(
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(
-            color: section.color.withValues(alpha: isDark ? 0.25 : 0.12),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(section.icon, size: 18, color: section.color),
-        ),
-        const SizedBox(width: 10),
-        Text(
-          section.label,
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-            color: section.color,
-            letterSpacing: 0.2,
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Divider(
-            color: section.color.withValues(alpha: 0.2),
-            thickness: 1,
-          ),
-        ),
-      ],
-    );
+    final modules = [
+      _ModuleItem('Picking', 'assests/images/picking.png',
+          () => onModuleTap('Picking')),
+      _ModuleItem('Packing', 'assests/images/packing.png',
+          () => onModuleTap('Packing')),
+    ];
+    return _ModuleGrid(items: modules, columnCount: columnCount);
   }
 }
 
@@ -509,12 +429,14 @@ class _GeneralTab extends StatelessWidget {
     final modules = [
       _ModuleItem('Stock Item', 'assests/images/stockitem.png',
           () => onModuleTap('Stock Item')),
-      _ModuleItem('Customers', 'assests/images/customer.png',
-          () => onModuleTap('Customers')),
-      _ModuleItem('Suppliers', 'assests/images/supplier.png',
-          () => onModuleTap('Suppliers')),
-      _ModuleItem('Locations', 'assests/images/location.png',
-          () => onModuleTap('Locations')),
+      _ModuleItem('Stock Take', 'assests/images/stocktake.png',
+          () => onModuleTap('Stock Take')),
+      _ModuleItem('Stock Adjustment', 'assests/images/adjustment.png',
+          () => onModuleTap('Stock Adjustment'),
+          iconData: Icons.tune_outlined,
+          iconColor: const Color(0xFF2E7D32)),
+      _ModuleItem('Stock Transfer', 'assests/images/transfer.png',
+          () => onModuleTap('Stock Transfer')),
       _ModuleItem('Analysis', 'assests/images/analysis.png',
           () => onModuleTap('Analysis'),
           iconData: Icons.analytics_outlined,

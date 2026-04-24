@@ -329,6 +329,22 @@ class SessionManager {
     return v != null && v.isNotEmpty;
   }
 
+  // ── Receiving Draft ──────────────────────────────────────
+
+  static Future<void> saveReceivingraft(String jsonStr) =>
+      _storage.write(key: 'receiving_draft', value: jsonStr);
+
+  static Future<String?> getReceivingDraft() =>
+      _storage.read(key: 'receiving_draft');
+
+  static Future<void> clearReceivingDraft() =>
+      _storage.delete(key: 'receiving_draft');
+
+  static Future<bool> hasReceivingDraft() async {
+    final v = await _storage.read(key: 'receiving_draft');
+    return v != null && v.isNotEmpty;
+  }
+
 
   // ── Stock Take Draft ──────────────────────────────────────
 
@@ -375,6 +391,22 @@ class SessionManager {
 
   static Future<bool> hasInboundDraft() async {
     final v = await _storage.read(key: 'inbound_draft');
+    return v != null && v.isNotEmpty;
+  }
+
+  // ── Packing Draft ──────────────────────────────────────
+
+  static Future<void> savePackingDraft(String jsonStr) =>
+      _storage.write(key: 'packing_draft', value: jsonStr);
+
+  static Future<String?> getPackingDraft() =>
+      _storage.read(key: 'packing_draft');
+
+  static Future<void> clearPackingDraft() =>
+      _storage.delete(key: 'packing_draft');
+
+  static Future<bool> hasPackingDraft() async {
+    final v = await _storage.read(key: 'packing_draft');
     return v != null && v.isNotEmpty;
   }
 
