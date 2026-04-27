@@ -46,4 +46,10 @@ class StockCommon {
     if (dp == 0) return v.toInt().toString();
     return v.toStringAsFixed(dp);
   }
+
+  static double toD(dynamic v) {
+  if (v == null) return 0.0;
+  if (v is num) return v.toDouble();
+  return double.tryParse(v.toString()) ?? 0.0;
+  }
 }

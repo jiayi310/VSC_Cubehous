@@ -1,13 +1,13 @@
-import 'package:cubehous/view/Common/common_dialog.dart';
+import 'dart:convert';
+import 'package:cubehous/common/stock_common.dart';
+import 'package:cubehous/view/Warehouse/Receiving/receiving_po_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:intl/intl.dart';
 import '../../../api/api_endpoints.dart';
 import '../../../api/base_client.dart';
-import '../../../common/direction_chip.dart';
 import '../../../common/dots_loading.dart';
-import '../../../common/pagination_bar.dart';
 import '../../../common/session_manager.dart';
 import '../../../models/receiving.dart';
 import '../../../models/purchase_order.dart';
@@ -22,29 +22,41 @@ import '../../Common/Stock/item_picker_page.dart';
 class _ReceivingLine {
   int dtlID;
   int? stockID;
-  int stockBatchID;
+  int stockBatchID = 0;
   String batchNo;
   String stockCode;
   String description;
   String uom;
+  double orderedQty;
   double qty;
+  List<String> serialNoList = [];
+  String? itemImage;
+  bool hasBatch = false;
+  bool hasSerial = false;
   final bool fromPO;
   final TextEditingController qtyCtrl;
+  final TextEditingController batchNoCtrl;
 
   _ReceivingLine({
     this.dtlID = 0,
     this.stockID,
-    this.stockBatchID = 0,
     this.batchNo = '',
     required this.stockCode,
     required this.description,
     required this.uom,
+    this.orderedQty = 0,
     required this.qty,
     this.fromPO = false,
-  }) : qtyCtrl = TextEditingController(
-            text: NumberFormat('#,##0.##').format(qty));
+  })  : qtyCtrl = TextEditingController(
+            text: NumberFormat('#,##0.##').format(qty)),
+        batchNoCtrl = TextEditingController(text: batchNo);
 
-  void dispose() => qtyCtrl.dispose();
+  bool get isFullyReceived => orderedQty > 0 && qty >= orderedQty;
+
+  void dispose() {
+    qtyCtrl.dispose();
+    batchNoCtrl.dispose();
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -66,35 +78,32 @@ class _ReceivingFormPageState extends State<ReceivingFormPage> {
   int _userID = 0;
   String _userSessionID = '';
 
-  // Page state
-  bool _loading = true;
-  bool _saving = false;
-  bool _showImage = true;
-  bool _scanning = false;
-  bool _scanSearching = false;
-
-  // Section expand state
-  bool _docExpanded = true;
-  bool _notesExpanded = true;
-  bool _supplierExpanded = true;
-  bool _itemsExpanded = true;
+  bool get _isEditMode => widget.initialDoc != null;
+  int _editDocID = 0;
+  String _editDocNo = '';
 
   // Header state
   DateTime _docDate = DateTime.now();
-  ReceivingPurchaseItem? _selectedPO;
+  ReceivingSelectedPO? _selectedPO;
   PurchaseDoc? _purchaseDoc;
   bool _isLoadingPO = false;
-
-  // Notes fields
   final _descriptionCtrl = TextEditingController();
   final _remarkCtrl = TextEditingController();
 
   // Line items
   final List<_ReceivingLine> _lines = [];
 
+  final _formScrollCtrl = ScrollController();
+  bool _isLoading = true;
+  bool _isSaving = false;
+  bool _showImage = true;
+  bool _scanning = false;
+  bool _scanSearching = false;
+  bool _docExpanded = false;
+  bool _fromPOExpanded = true;
+  bool _itemsExpanded = true;
   NumberFormat _qtyFmt = NumberFormat('#,##0.##');
   DateFormat _dateFmt = DateFormat('dd MMM yyyy');
-  final _formScrollCtrl = ScrollController();
 
   @override
   void initState() {
@@ -114,99 +123,206 @@ class _ReceivingFormPageState extends State<ReceivingFormPage> {
   }
 
   Future<void> _init() async {
-    final results = await Future.wait([
-      SessionManager.getApiKey(),
-      SessionManager.getCompanyGUID(),
-      SessionManager.getUserID(),
-      SessionManager.getUserSessionID(),
-      SessionManager.getImageMode(),
-      SessionManager.getQuantityDecimalPoint(),
-      SessionManager.getDateFormat(),
-    ]);
-    _apiKey        = results[0] as String;
-    _companyGUID   = results[1] as String;
-    _userID        = results[2] as int;
-    _userSessionID = results[3] as String;
-    _showImage     = (results[4] as String) == 'show';
-    final dp       = results[5] as int;
-    _qtyFmt        = NumberFormat('#,##0.${'0' * dp}');
-    _dateFmt       = DateFormat(results[6] as String);
-    // if (widget.initialDoc == null) await _checkAndRestoreDraft();
-    if (mounted) setState(() => _loading = false);
+    try {
+      final results = await Future.wait([
+        SessionManager.getApiKey(),
+        SessionManager.getCompanyGUID(),
+        SessionManager.getUserID(),
+        SessionManager.getUserSessionID(),
+        SessionManager.getImageMode(),
+        SessionManager.getQuantityDecimalPoint(),
+        SessionManager.getDateFormat(),
+      ]);
+      _apiKey        = results[0] as String;
+      _companyGUID   = results[1] as String;
+      _userID        = results[2] as int;
+      _userSessionID = results[3] as String;
+      _showImage     = (results[4] as String) == 'show';
+      final dp       = results[5] as int;
+      _qtyFmt        = NumberFormat('#,##0.${'0' * dp}');
+      _dateFmt       = DateFormat(results[6] as String);
+      if (_isEditMode) {
+        if (mounted) setState(() => _initFromDoc(widget.initialDoc!));
+      } else {
+        await _checkAndRestoreDraft();
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _isLoading = false);
+  }
+
+  void _initFromDoc(ReceivingDoc doc) {
+    _editDocID  = doc.docID;
+    _editDocNo  = doc.docNo;
+    _docDate    = DateTime.tryParse(doc.docDate) ?? DateTime.now();
+    _descriptionCtrl.text = doc.description ?? '';
+    _remarkCtrl.text      = doc.remark ?? '';
+    _docExpanded = true;
+
+    if (doc.purchaseDocID != null) {
+      _selectedPO = ReceivingSelectedPO(
+        docID:        doc.purchaseDocID!,
+        docNo:        doc.purchaseDocNo ?? '',
+        docDate:      '',
+        supplierID:   doc.supplierID ?? 0,
+        supplierCode: doc.supplierCode,
+        supplierName: doc.supplierName,
+        finalTotal:   0,
+      );
+    }
+
+    for (final d in doc.receivingDetails) {
+      _lines.add(_ReceivingLine(
+        dtlID:       d.dtlID,
+        stockID:     d.stockID,
+        stockCode:   d.stockCode,
+        description: d.description,
+        uom:         d.uom,
+        orderedQty:  0,
+        qty:         d.qty,
+        fromPO:      doc.purchaseDocID != null,
+      ));
+    }
+
+    if (doc.purchaseDocID != null) {
+      _fetchPOForEditMode(doc.purchaseDocID!);
+    }
+  }
+
+  Future<void> _fetchPOForEditMode(int docID) async {
+    setState(() => _isLoadingPO = true);
+    try {
+      final result = await BaseClient.post(
+        ApiEndpoints.getPurchase,
+        body: {
+          'apiKey':        _apiKey,
+          'companyGUID':   _companyGUID,
+          'userID':        _userID,
+          'userSessionID': _userSessionID,
+          'docID':         docID,
+        },
+      );
+      final doc = PurchaseDoc.fromJson(result as Map<String, dynamic>);
+      if (!mounted) return;
+      for (final line in _lines) {
+        final match = doc.purchaseDetails.where(
+          (d) => d.stockID == line.stockID || d.stockCode == line.stockCode,
+        ).firstOrNull;
+        if (match != null) line.orderedQty = match.qty;
+      }
+      setState(() {
+        _purchaseDoc = doc;
+        _isLoadingPO = false;
+      });
+      if (_showImage) _loadLineData(_lines);
+    } catch (_) {
+      if (mounted) setState(() => _isLoadingPO = false);
+    }
   }
 
   // ── Draft ─────────────────────────────────────────────────────────────
 
   Future<void> _saveDraft() async {
     final draft = {
-
+      'docDate': _docDate.toIso8601String(),
+      'description': _descriptionCtrl.text,
+      'remark': _remarkCtrl.text,
+      'po': _selectedPO == null
+          ? null
+          : {
+              'docID': _selectedPO!.docID,
+              'docNo': _selectedPO!.docNo,
+              'docDate': _selectedPO!.docDate,
+              'supplierCode': _selectedPO!.supplierCode,
+              'supplierName': _selectedPO!.supplierName,
+            },
+      'lines': _lines
+          .map((l) => {
+                'stockID': l.stockID,
+                'stockCode': l.stockCode,
+                'description': l.description,
+                'uom': l.uom,
+                'orderedQty': l.orderedQty,
+                'qty': l.qtyCtrl.text,
+                'batchNo': l.batchNoCtrl.text,
+                'fromPO': l.fromPO,
+              })
+          .toList(),
     };
-    // await SessionManager.saveReceivingraft(jsonEncode(draft));
+    await SessionManager.saveReceivingDraft(jsonEncode(draft));
   }
 
-  // void _restoreDraftFields(Map<String, dynamic> j) {
-  //   _docDate = DateTime.tryParse(j['docDate'] as String? ?? '') ?? DateTime.now();
-  //   _descriptionCtrl.text = j['description'] as String? ?? '';
-  //   _remarkCtrl.text = j['remark'] as String? ?? '';
-  // }
+  void _restoreDraftFields(Map<String, dynamic> j) {
+    _docDate = DateTime.tryParse(j['docDate'] as String? ?? '') ?? DateTime.now();
+    _descriptionCtrl.text = j['description'] as String? ?? '';
+    _remarkCtrl.text = j['remark'] as String? ?? '';
+  }
 
-  // Future<void> _checkAndRestoreDraft() async {
-  //   final raw = await SessionManager.getReceivingDraft();
-  //   if (raw == null || raw.isEmpty) return;
-  //   try {
-  //     final j = jsonDecode(raw) as Map<String, dynamic>;
-  //     if (!mounted) return;
-  //     _restoreDraftFields(j);
-  //     final soMap = j['so'] as Map<String, dynamic>?;
-  //     final linesJson = j['lines'] as List<dynamic>? ?? [];
-  //     if (soMap != null) {
-  //       final docID = soMap['docID'] as int? ?? 0;
-  //       // Build a minimal SalesListItem so the SO card renders
-  //       _selectedPO = PurchaseListItem(
-  //         //TODO
-  //       );
-  //       setState(() => _isLoadingPO = true);
-  //       // Re-fetch SO so _salesDoc is populated (needed for save payload)
-  //       try {
-  //         final result = await BaseClient.post(
-  //           ApiEndpoints.getPurchase,
-  //           body: {
-  //             'apiKey': _apiKey,
-  //             'companyGUID': _companyGUID,
-  //             'userID': _userID,
-  //             'userSessionID': _userSessionID,
-  //             'docID': docID,
-  //           },
-  //         );
-  //         final doc = PurchaseDoc.fromJson(result as Map<String, dynamic>);
-  //         if (!mounted) return;
-  //         // Build lines from live SO data, apply saved pack qtys
-  //         final Map<int, String> savedQtys = {
-  //           for (final lj in linesJson)
-  //             (lj as Map<String, dynamic>)['soDetailID'] as int? ?? 0:
-  //                 (lj)['packQty'] as String? ?? '0',
-  //         };
-  //         final newLines = doc.purchaseDetails.map((d) {
-  //           final line = ;//TODO
-
-  //           line.packQtyCtrl.text = savedQtys[d.dtlID] ?? '0';
-  //           return line;
-  //         }).toList();
-  //         setState(() {
-  //           _purchaseDoc = doc;
-  //           _lines.addAll(newLines);
-  //           _isLoadingPO = false;
-  //         });
-  //       } catch (_) {
-  //         if (mounted) setState(() => _isLoadingPO = false);
-  //       }
-  //     } else {
-  //       setState(() {});
-  //     }
-  //   } catch (_) {
-  //     await SessionManager.clearPackingDraft();
-  //   }
-  // }
+  Future<void> _checkAndRestoreDraft() async {
+    final raw = await SessionManager.getReceivingDraft();
+    if (raw == null || raw.isEmpty) return;
+    try {
+      final j = jsonDecode(raw) as Map<String, dynamic>;
+      if (!mounted) return;
+      _restoreDraftFields(j);
+      final poMap = j['po'] as Map<String, dynamic>?;
+      final linesJson = j['lines'] as List<dynamic>? ?? [];
+      if (poMap != null) {
+        _selectedPO = ReceivingSelectedPO(
+          docID: poMap['docID'] as int? ?? 0,
+          docNo: poMap['docNo'] as String? ?? '',
+          docDate: poMap['docDate'] as String? ?? '',
+          supplierID: poMap['supplierID'] as int? ?? 0,
+          supplierCode: poMap['supplierCode'] as String? ?? '',
+          supplierName: poMap['supplierName'] as String? ?? '',
+          finalTotal: StockCommon.toD(poMap['finalTotal'])
+        );
+        setState(() => _isLoadingPO = true);
+        try {
+          final result = await BaseClient.post(
+            ApiEndpoints.getPurchase,
+            body: {
+              'apiKey': _apiKey,
+              'companyGUID': _companyGUID,
+              'userID': _userID,
+              'userSessionID': _userSessionID,
+              'docID': _selectedPO!.docID,
+            },
+          );
+          final doc = PurchaseDoc.fromJson(result as Map<String, dynamic>);
+          if (!mounted) return;
+          // Restore lines from draft (preserves user-edited qtys)
+          final restoredLines = linesJson.map((lj) {
+            final m = lj as Map<String, dynamic>;
+            final qtyText = m['qty'] as String? ?? '0';
+            final qty = double.tryParse(qtyText.replaceAll(',', '')) ?? 0;
+            final orderedQty = (m['orderedQty'] as num?)?.toDouble() ?? 0;
+            return _ReceivingLine(
+              stockID: m['stockID'] as int?,
+              stockCode: m['stockCode'] as String? ?? '',
+              description: m['description'] as String? ?? '',
+              uom: m['uom'] as String? ?? '',
+              orderedQty: orderedQty,
+              qty: qty,
+              batchNo: m['batchNo'] as String? ?? '',
+              fromPO: m['fromPO'] as bool? ?? false,
+            );
+          }).toList();
+          setState(() {
+            _purchaseDoc = doc;
+            _lines.addAll(restoredLines);
+            _isLoadingPO = false;
+          });
+          _loadLineData(restoredLines);
+        } catch (_) {
+          if (mounted) setState(() => _isLoadingPO = false);
+        }
+      } else {
+        setState(() {});
+      }
+    } catch (_) {
+      await SessionManager.clearReceivingDraft();
+    }
+  }
 
   bool get _hasChanges =>
       _selectedPO != null ||
@@ -299,17 +415,17 @@ class _ReceivingFormPageState extends State<ReceivingFormPage> {
     );
     if (result == null) return false;
     if (result == 'save') await _saveDraft();
-    if (result == 'discard') await SessionManager.clearPackingDraft();
+    if (result == 'discard') await SessionManager.clearReceivingDraft();
     return true;
   }
 
   // ── PO picker ───────────────────────────────────────────────────
 
   Future<void> _pickPO() async {
-    final po = await Navigator.push<ReceivingPurchaseItem>(
+    final po = await Navigator.push<ReceivingSelectedPO>(
       context,
       MaterialPageRoute(
-        builder: (_) => _POPickerPage(
+        builder: (_) => ReceivingPOPickerPage(
           apiKey: _apiKey,
           companyGUID: _companyGUID,
           userID: _userID,
@@ -330,39 +446,87 @@ class _ReceivingFormPageState extends State<ReceivingFormPage> {
     await _fetchPODetails(po.docID);
   }
 
-Future<void> _fetchPODetails(int docID) async {
+  Future<void> _fetchPODetails(int docID) async {
     try {
-      // final result = await BaseClient.post(
-      //   ApiEndpoints.getPurchase,
-      //   body: {
-      //     'apiKey': _apiKey,
-      //     'companyGUID': _companyGUID,
-      //     'userID': _userID,
-      //     'userSessionID': _userSessionID,
-      //     'docID': docID,
-      //   },
-      // );
-      // final doc = PurchaseDoc.fromJson(result as Map<String, dynamic>);
-      // if (!mounted) return;
-      // final newLines = doc.purchaseDetails.map((d) {
-      //   return _ReceivingLine()
-      //     ..stockID: d.stockID
-      //     ..stockCode: d.stockCode
-      //     ..description: d.description
-      //     ..uom: d.uom
-      //     ..qty: d.qty
-      //     ..fromPO: true;
-      // }).toList();
-      // setState(() {
-      //   _purchaseDoc = doc;
-      //   _lines.addAll(newLines);
-      //   _isLoadingPO = false;
-      // });
+      final result = await BaseClient.post(
+        ApiEndpoints.getPurchase,
+        body: {
+          'apiKey': _apiKey,
+          'companyGUID': _companyGUID,
+          'userID': _userID,
+          'userSessionID': _userSessionID,
+          'docID': docID,
+        },
+      );
+      final doc = PurchaseDoc.fromJson(result as Map<String, dynamic>);
+      if (!mounted) return;
+      final newLines = doc.purchaseDetails.map((d) {
+        return _ReceivingLine(
+          dtlID: d.dtlID,
+          stockID: d.stockID,
+          stockCode: d.stockCode,
+          description: d.description,
+          uom: d.uom,
+          orderedQty: d.qty,
+          qty: 0,
+          fromPO: true,
+        );
+      }).toList();
+      setState(() {
+        _purchaseDoc = doc;
+        _lines
+          ..clear()
+          ..addAll(newLines);
+        _isLoadingPO = false;
+      });
+      _loadLineData(newLines);
     } catch (e) {
       if (mounted) {
         setState(() => _isLoadingPO = false);
         _showError('Failed to load purchase order: $e');
       }
+    }
+  }
+
+  Future<void> _loadLineData(List<_ReceivingLine> lines) async {
+    for (final line in lines) {
+      if (line.stockID == null || !mounted) return;
+      try {
+        final result = await BaseClient.post(
+          ApiEndpoints.getStock,
+          body: {
+            'apiKey': _apiKey,
+            'companyGUID': _companyGUID,
+            'userID': _userID,
+            'userSessionID': _userSessionID,
+            'stockID': line.stockID,
+          },
+        );
+        if (!mounted) return;
+
+        final data = result as Map<String, dynamic>;
+        final bool nHasBatch = data['hasBatch'] as bool;
+        // final bool nHasSerialNo = data['hasSerial'] as bool;
+        final bool nHasSerialNo = true;
+
+        if (_showImage){
+          final image = data['image'] as String?;
+          if (image != null && image.isNotEmpty) {
+            setState(() {
+              line.itemImage = image;
+              line.hasBatch = nHasBatch;
+              line.hasSerial = nHasSerialNo;
+            });
+          }
+        } else {
+          setState(() {
+            line.hasBatch = nHasBatch;
+            line.hasSerial = nHasSerialNo;
+          });
+        }
+
+        
+      } catch (_) {}
     }
   }
 
@@ -406,6 +570,9 @@ Future<void> _fetchPODetails(int docID) async {
         fromPO: false,
       ));
     });
+    if (_showImage && picked.stockID != null) {
+      _loadLineData([_lines.last]);
+    }
   }
 
   // ── Delete line ─────────────────────────────────────────────────
@@ -526,7 +693,10 @@ Future<void> _fetchPODetails(int docID) async {
   // ── Qty helpers ─────────────────────────────────────────────────
 
   void _stepQty(_ReceivingLine line, double delta) {
-    final newQty = (line.qty + delta).clamp(1.0, double.infinity);
+    final maxQty = line.fromPO && line.orderedQty > 0
+        ? line.orderedQty
+        : double.infinity;
+    final newQty = (line.qty + delta).clamp(0.0, maxQty);
     setState(() {
       line.qty = newQty;
       line.qtyCtrl.text = _qtyFmt.format(newQty);
@@ -537,7 +707,10 @@ Future<void> _fetchPODetails(int docID) async {
     final val = double.tryParse(
             line.qtyCtrl.text.replaceAll(',', '')) ??
         line.qty;
-    final clamped = val < 1.0 ? 1.0 : val;
+    final maxQty = line.fromPO && line.orderedQty > 0
+        ? line.orderedQty
+        : double.infinity;
+    final clamped = val.clamp(0.0, maxQty);
     setState(() {
       line.qty = clamped;
       line.qtyCtrl.text = _qtyFmt.format(clamped);
@@ -570,16 +743,32 @@ Future<void> _fetchPODetails(int docID) async {
         found = Stock.fromJson(response);
       }
       if (found != null && mounted) {
-        setState(() {
-          _lines.add(_ReceivingLine(
-            stockID: found!.stockID,
-            stockCode: found.stockCode,
-            description: found.description,
-            uom: found.baseUOM,
+        final f = found;
+        final existingIdx = _lines.indexWhere(
+          (l) => l.stockID == f.stockID || l.stockCode == f.stockCode,
+        );
+        if (existingIdx >= 0) {
+          final line = _lines[existingIdx];
+          final maxQty = line.fromPO && line.orderedQty > 0
+              ? line.orderedQty
+              : double.infinity;
+          final newQty = (line.qty + 1).clamp(0.0, maxQty);
+          setState(() {
+            line.qty = newQty;
+            line.qtyCtrl.text = _qtyFmt.format(newQty);
+          });
+        } else {
+          final newLine = _ReceivingLine(
+            stockID: f.stockID,
+            stockCode: f.stockCode,
+            description: f.description,
+            uom: f.baseUOM,
             qty: 1,
             fromPO: false,
-          ));
-        });
+          );
+          setState(() => _lines.add(newLine));
+          if (_showImage) _loadLineData([newLine]);
+        }
       } else if (mounted) {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
@@ -605,80 +794,104 @@ Future<void> _fetchPODetails(int docID) async {
   // ── Save ─────────────────────────────────────────────────────────
 
   Future<void> _save() async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
+
     if (_selectedPO == null) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(
-          content: Text('Please select a Purchase Order'),
-          behavior: SnackBarBehavior.floating,
-        ));
+      _showError('Please select a Purchase Order');
       return;
     }
     if (_lines.isEmpty) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(
-          content: Text('Please add at least one item'),
-          behavior: SnackBarBehavior.floating,
-        ));
+      _showError('Please add at least one item');
       return;
     }
 
-    setState(() => _saving = true);
+    final missingBatch = _lines.where(
+      (l) => l.qty > 0 && l.hasBatch && l.batchNoCtrl.text.trim().isEmpty,
+    ).toList();
+    if (missingBatch.isNotEmpty) {
+      _showError('Batch no required for: ${missingBatch.map((l) => l.stockCode).join(', ')}');
+      return;
+    }
+
+    final missingSerial = _lines.where(
+      (l) => l.hasSerial && l.serialNoList.length != l.qty.toInt(),
+    ).toList();
+    if (missingSerial.isNotEmpty) {
+      _showError('Serial no. count mismatch for: ${missingSerial.map((l) => l.stockCode).join(', ')}');
+      return;
+    }
+
+    setState(() => _isSaving = true);
     try {
       final details = _lines
+          .where((l) => l.qty > 0)
           .map((l) => {
                 'dtlID': l.dtlID,
+                'docID': _isEditMode ? _editDocID : 0,
                 'stockID': l.stockID ?? 0,
                 'stockBatchID': l.stockBatchID,
-                'batchNo': l.batchNo,
+                'batchNo': l.batchNoCtrl.text.trim(),
                 'stockCode': l.stockCode,
                 'description': l.description,
                 'uom': l.uom,
                 'qty': l.qty,
+                if (l.hasSerial) 'serialNoList': l.serialNoList,
               })
           .toList();
 
-      await BaseClient.post(
-        ApiEndpoints.createReceiving,
-        body: {
-          // 'apiKey': _apiKey,
-          // 'companyGUID': _companyGUID,
-          // 'userID': _userID,
-          // 'userSessionID': _userSessionID,
-          // 'docDate': _docDate.toIso8601String(),
-          // 'supplierID': _supplierID ?? 0,
-          // 'supplierCode': _supplierCode,
-          // 'supplierName': _supplierName,
-          // 'address1': _address1,
-          // 'address2': _address2,
-          // 'address3': _address3,
-          // 'address4': _address4,
-          // 'phone': _phone,
-          // 'fax': _fax,
-          // 'email': _email,
-          // 'attention': _attention,
-          // 'description': _descriptionCtrl.text.trim(),
-          // 'remark': _remarkCtrl.text.trim(),
-          // 'purchaseDocID': _selectedPO?.docID ?? 0,
-          // 'receivingDetails': details,
+      final body = {
+        'apiKey':        _apiKey,
+        'companyGUID':   _companyGUID,
+        'userID':        _userID,
+        'userSessionID': _userSessionID,
+        'receivingForm': {
+          'docID':        _isEditMode ? _editDocID : 0,
+          'docNo':        _isEditMode ? _editDocNo : '',
+          'docDate':      _docDate.toIso8601String(),
+          'supplierID':   _selectedPO?.supplierID ?? 0,
+          'supplierCode': _selectedPO?.supplierCode ?? '',
+          'supplierName': _selectedPO?.supplierName ?? '',
+          'address1' : '',
+          'address2' : '',
+          'address3' : '',
+          'address4' : '',
+          'phone' : '',
+          'fax' : '',
+          'email' : '',
+          'attention' : '',
+          'description':  _descriptionCtrl.text.trim(),
+          'remark':       _remarkCtrl.text.trim(),
+          'isPutAway':    false,
+          'isVoid':       false,
+          'lastModifiedDateTime' : DateTime.now().toIso8601String(),
+          'lastModifiedUserID': _userID,
+          'createdDateTime' : DateTime.now().toIso8601String(),
+          'createdUserID': _userID,
+          'purchaseDocID':  _selectedPO?.docID ?? 0,
+          'purchaseDocNo':  _selectedPO?.docNo ?? '',
+          'receivingDetails': details,
         },
+      };
+
+      final jsonStr = '── RECEIVING SAVE BODY ──\n${const JsonEncoder.withIndent('  ').convert(body)}';
+      for (var i = 0; i < jsonStr.length; i += 800) {
+        // ignore: avoid_print
+        print(jsonStr.substring(i, i + 800 > jsonStr.length ? jsonStr.length : i + 800));
+      }
+
+      await BaseClient.post(
+        _isEditMode ? ApiEndpoints.updateReceiving : ApiEndpoints.createReceiving,
+        body: body,
       );
 
-      if (mounted) {
-        Navigator.pop(context, true);
-      }
+      if (!_isEditMode) await SessionManager.clearReceivingDraft();
+      if (mounted) Navigator.pop(context, true);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(
-            content: Text('Failed to save: $e'),
-            behavior: SnackBarBehavior.floating,
-          ));
-      }
+      _showError('Failed to save: $e');
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
@@ -705,8 +918,15 @@ Future<void> _fetchPODetails(int docID) async {
       },
       child: Scaffold(
       appBar: AppBar(
-        title: const Text('New Receiving',
-            style: TextStyle(fontWeight: FontWeight.w600)),
+        title: GestureDetector(
+          onDoubleTap: () => _formScrollCtrl.animateTo(
+            0,
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.easeOutCubic,
+          ),
+          child: Text(_isEditMode ? 'Edit Receiving' : 'New Receiving',
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+        ),
         centerTitle: true,
         actions: [
           if (_scanSearching)
@@ -722,7 +942,7 @@ Future<void> _fetchPODetails(int docID) async {
             ),
         ],
       ),
-      body: _loading
+      body: _isLoading
           ? const Center(child: DotsLoading())
           : Stack(
               children: [
@@ -745,70 +965,45 @@ Future<void> _fetchPODetails(int docID) async {
                                     () => _docExpanded = !_docExpanded),
                               ),
                               AnimatedSize(
-                                duration:
-                                    const Duration(milliseconds: 220),
+                                duration: const Duration(milliseconds: 220),
                                 curve: Curves.easeInOut,
                                 child: _docExpanded
                                     ? _buildDocSection()
                                     : const SizedBox.shrink(),
                               ),
 
-                            // ── Supplier (after PO selected) ──────────
-                            if (_selectedPO != null) ...[
+                              // ── From PO ───────────────────────────────
                               FormSectionHeader(
-                                icon: Icons.person_outline,
-                                title: 'Supplier',
-                                expanded: _supplierExpanded,
-                                onToggle: () => setState(() =>
-                                    _supplierExpanded =
-                                        !_supplierExpanded),
+                                icon: Icons.link_outlined,
+                                title: 'From Purchase Order *',
+                                expanded: _fromPOExpanded,
+                                onToggle: () => setState(
+                                    () => _fromPOExpanded = !_fromPOExpanded),
                               ),
                               AnimatedSize(
-                                duration:
-                                    const Duration(milliseconds: 220),
+                                duration: const Duration(milliseconds: 220),
                                 curve: Curves.easeInOut,
-                                child: _supplierExpanded
-                                    ? _buildSupplierSection()
+                                child: _fromPOExpanded
+                                    ? _buildFromPOSection()
                                     : const SizedBox.shrink(),
                               ),
-                            ],
 
-                            // ── Notes ─────────────────────────────────
-                            FormSectionHeader(
-                              icon: Icons.notes_outlined,
-                              title: 'Notes',
-                              expanded: _notesExpanded,
-                              onToggle: () => setState(
-                                  () => _notesExpanded = !_notesExpanded),
-                            ),
-                            AnimatedSize(
-                              duration:
-                                  const Duration(milliseconds: 220),
-                              curve: Curves.easeInOut,
-                              child: _notesExpanded
-                                  ? _buildNotesSection()
-                                  : const SizedBox.shrink(),
-                            ),
-                            
-                            // ── Items ─────────────────────────────────
-                            FormSectionHeader(
-                              icon: Icons.inventory_2_outlined,
-                              title: 'Packing Items',
-                              expanded: _itemsExpanded,
-                              onToggle: () => setState(
-                                  () => _itemsExpanded = !_itemsExpanded),
-                              badge: _lines.isEmpty
-                                  ? null
-                                  : '${_lines.length}',
-                            ),
-                            AnimatedSize(
-                              duration:
-                                  const Duration(milliseconds: 220),
-                              curve: Curves.easeInOut,
-                              child: _itemsExpanded
-                                  ? _buildItemsSection()
-                                  : const SizedBox.shrink(),
-                            ),
+                              // ── Items ─────────────────────────────────
+                              FormSectionHeader(
+                                icon: Icons.inventory_2_outlined,
+                                title: 'Receiving Items',
+                                expanded: _itemsExpanded,
+                                onToggle: () => setState(
+                                    () => _itemsExpanded = !_itemsExpanded),
+                                badge: _lines.isEmpty ? null : '${_lines.length}',
+                              ),
+                              AnimatedSize(
+                                duration: const Duration(milliseconds: 220),
+                                curve: Curves.easeInOut,
+                                child: _itemsExpanded
+                                    ? _buildItemsSection()
+                                    : const SizedBox.shrink(),
+                              ),
 
                               const SizedBox(height: 8),
                             ],
@@ -816,22 +1011,29 @@ Future<void> _fetchPODetails(int docID) async {
                         ),
                       ),
                     ),
-
-                    // ── Save button ──────────────────────────────────
+                    // ── Receiving summary and Save button ────────────────────────
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-                      child: SizedBox(
-                        width: double.infinity,
-                        height: 50,
-                        child: FilledButton(
-                          onPressed: _saving ? null : _save,
-                          child: _saving
-                              ? const DotsLoading(dotSize: 6)
-                              : const Text('Save',
-                                  style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w700)),
+                      padding: EdgeInsetsGeometry.only(top: 25, bottom: 25, left: 10, right: 20),
+                      child: Row(
+                      mainAxisAlignment: MainAxisAlignment.start,
+                      children: [
+                        IconButton(onPressed: _showReceivingSummary, icon: Icon(Icons.info_outline, size: 25, color: Colors.grey)),
+                        Expanded(
+                          child: SizedBox(
+                            width: double.infinity,
+                            height: 50,
+                            child: FilledButton(
+                              onPressed: _isSaving ? null : _save,
+                              child: _isSaving
+                                  ? const DotsLoading(dotSize: 6)
+                                  : Text(_isEditMode ? 'Update' : 'Save',
+                                      style: const TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w700)),
+                            ),
+                          ),
                         ),
+                      ],
                       ),
                     ),
                   ],
@@ -853,172 +1055,879 @@ Future<void> _fetchPODetails(int docID) async {
   }
 
 
+  // ── Line edit sheet ───────────────────────────────────────────────
+
+  void _openEditSheet(_ReceivingLine line) {
+    final cs = Theme.of(context).colorScheme;
+    final primary = cs.primary;
+    final dateFmt = DateFormat('dd MMM yyyy');
+
+    DateTime? mfgDate;
+    DateTime? expDate;
+    bool creating = false;
+
+    // Serial generator state
+    bool showGenerator  = false;
+    bool showSerialList = true;
+    final genPrefixCtrl = TextEditingController();
+    final genStartCtrl  = TextEditingController(text: '1');
+    final genCountCtrl  = TextEditingController();
+    final serialCtrl    = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          final isFullyReceived = line.isFullyReceived;
+          final isPartial = line.qty > 0 && !isFullyReceived;
+          final qtyColor = line.fromPO
+              ? isFullyReceived
+                  ? Colors.green
+                  : isPartial
+                      ? const Color(0xFFFF9700)
+                      : cs.onSurface.withValues(alpha: 0.45)
+              : cs.onSurface.withValues(alpha: 0.45);
+
+          void stepQty(double delta) {
+            final maxQty = line.fromPO && line.orderedQty > 0
+                ? line.orderedQty
+                : double.infinity;
+            final newQty = (line.qty + delta).clamp(0.0, maxQty);
+            setState(() {
+              line.qty = newQty;
+              line.qtyCtrl.text = _qtyFmt.format(newQty);
+            });
+            setSheet(() {});
+          }
+
+          void clampQty() {
+            final val = double.tryParse(
+                    line.qtyCtrl.text.replaceAll(',', '')) ??
+                line.qty;
+            final maxQty = line.fromPO && line.orderedQty > 0
+                ? line.orderedQty
+                : double.infinity;
+            final clamped = val.clamp(0.0, maxQty);
+            setState(() {
+              line.qty = clamped;
+              line.qtyCtrl.text = _qtyFmt.format(clamped);
+            });
+            setSheet(() {});
+          }
+
+          Future<void> pickDate({required bool isMfg}) async {
+            final initial = isMfg
+                ? (mfgDate ?? DateTime.now())
+                : (expDate ?? DateTime.now());
+            final picked = await showDatePicker(
+              context: ctx,
+              initialDate: initial,
+              firstDate: DateTime(2000),
+              lastDate: DateTime(2100),
+            );
+            if (picked != null) {
+              setSheet(() {
+                if (isMfg) { mfgDate = picked; } else { expDate = picked; }
+              });
+            }
+          }
+
+          Widget dateField(String label, DateTime? value, {required bool isMfg}) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: cs.onSurface.withValues(alpha: 0.6))),
+                const SizedBox(height: 6),
+                InkWell(
+                  onTap: () => pickDate(isMfg: isMfg),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 12),
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                          color: cs.outline.withValues(alpha: 0.3)),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.calendar_today_outlined,
+                            size: 16,
+                            color: value != null
+                                ? primary
+                                : cs.onSurface.withValues(alpha: 0.35)),
+                        const SizedBox(width: 8),
+                        Text(
+                          value != null
+                              ? dateFmt.format(value)
+                              : 'Select date',
+                          style: TextStyle(
+                              fontSize: 14,
+                              color: value != null
+                                  ? cs.onSurface
+                                  : cs.onSurface.withValues(alpha: 0.35)),
+                        ),
+                        if (value != null) ...[
+                          const Spacer(),
+                          GestureDetector(
+                            onTap: () => setSheet(() {
+                              if (isMfg) { mfgDate = null; } else { expDate = null; }
+                            }),
+                            child: Icon(Icons.clear,
+                                size: 16,
+                                color: cs.onSurface.withValues(alpha: 0.4)),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }
+
+          Future<void> confirm() async {
+            if (line.hasBatch) {
+              final batchNo = line.batchNoCtrl.text.trim();
+              if (batchNo.isEmpty) {
+                ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+                  content: const Text('Please enter a batch number'),
+                  backgroundColor: cs.error,
+                  behavior: SnackBarBehavior.floating,
+                ));
+                return;
+              }
+              setSheet(() => creating = true);
+              try {
+                final now = DateTime.now().toIso8601String();
+                final result = await BaseClient.post(
+                  ApiEndpoints.createStockBatch,
+                  body: {
+                    'apiKey': _apiKey,
+                    'companyGUID': _companyGUID,
+                    'userID': _userID,
+                    'userSessionID': _userSessionID,
+                    'stockBatchForm': {
+                      'stockBatchID': 0,
+                      'batchNo': batchNo,
+                      'manufacturedDate': mfgDate?.toIso8601String(),
+                      'expiryDate': expDate?.toIso8601String(),
+                      'lastModifiedDateTime': now,
+                      'lastModifiedUserID': _userID,
+                      'createdDateTime': now,
+                      'createdUserID': _userID,
+                      'stockID': line.stockID,
+                      'manufacturedDateOnly': mfgDate != null
+                          ? DateFormat('yyyy-MM-dd').format(mfgDate!)
+                          : null,
+                      'expiryDateOnly': expDate != null
+                          ? DateFormat('yyyy-MM-dd').format(expDate!)
+                          : null,
+                    },
+                  },
+                );
+                if (result is Map<String, dynamic>) {
+                  final id = result['stockBatchID'] as int?;
+                  if (id != null) setState(() => line.stockBatchID = id);
+                }
+              } catch (e) {
+                if (ctx.mounted) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+                    content: Text(e is BadRequestException
+                        ? e.message
+                        : 'Failed to create batch: $e'),
+                    backgroundColor: cs.error,
+                    behavior: SnackBarBehavior.floating,
+                  ));
+                }
+                setSheet(() => creating = false);
+                return;
+              }
+            }
+            if (ctx.mounted) Navigator.pop(ctx);
+          }
+
+          return ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(ctx).size.height * 0.8,
+            ),
+            child: Padding(
+            padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom),
+            child: Container(
+              decoration: BoxDecoration(
+                color: cs.surface,
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Handle
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: cs.onSurface.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    // Stock header
+                    Text(line.stockCode,
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: primary)),
+                    const SizedBox(height: 2),
+                    Text(line.description,
+                        style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: cs.onSurface),
+                        maxLines: 2),
+                    const SizedBox(height: 4),
+                    Text(line.uom,
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: cs.onSurface.withValues(alpha: 0.5))),
+                    if (line.fromPO && line.orderedQty > 0) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Ordered: ${_qtyFmt.format(line.orderedQty)}',
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: cs.onSurface.withValues(alpha: 0.45)),
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    Divider(height: 1, color: cs.outline.withValues(alpha: 0.1)),
+                    const SizedBox(height: 16),
+                    // Qty stepper — hidden for serial items (qty driven by serial count)
+                    if (!line.hasSerial) ...[
+                      Text('Receive Qty',
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: cs.onSurface.withValues(alpha: 0.6))),
+                      const SizedBox(height: 10),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _StepButton(
+                              icon: Icons.remove,
+                              primary: primary,
+                              cs: cs,
+                              onTap: () => stepQty(-1)),
+                          const SizedBox(width: 12),
+                          SizedBox(
+                            width: 80,
+                            child: TextField(
+                              controller: line.qtyCtrl,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true),
+                              inputFormatters: [
+                                FilteringTextInputFormatter.allow(
+                                    RegExp(r'[\d.,]'))
+                              ],
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w800,
+                                  color: qtyColor),
+                              decoration: InputDecoration(
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(
+                                    vertical: 8, horizontal: 4),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: BorderSide(
+                                      color:
+                                          cs.outline.withValues(alpha: 0.3)),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: BorderSide(
+                                      color:
+                                          cs.outline.withValues(alpha: 0.3)),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: BorderSide(color: primary),
+                                ),
+                              ),
+                              onEditingComplete: clampQty,
+                              onTapOutside: (_) => clampQty(),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          _StepButton(
+                              icon: Icons.add,
+                              primary: primary,
+                              cs: cs,
+                              onTap: () => stepQty(1)),
+                        ],
+                      ),
+                    ],
+                    // Serial number section
+                    if (line.hasSerial) ...[
+                      // Header row
+                      Row(
+                        children: [
+                          Text('Serial Numbers',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: cs.onSurface.withValues(alpha: 0.6))),
+                          const Spacer(),
+                          if (line.serialNoList.isNotEmpty)
+                            GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  line.serialNoList = [];
+                                  line.qty = 0;
+                                  line.qtyCtrl.text = '0';
+                                });
+                                setSheet(() {});
+                              },
+                              child: Text('Clear all',
+                                  style: TextStyle(
+                                      fontSize: 11,
+                                      color: cs.error)),
+                            ),
+                          
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+
+                      // ── Mode toggle ───────────────────────────────────
+                      Row(
+                        children: [
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => setSheet(() => showGenerator = false),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: !showGenerator
+                                      ? primary
+                                      : cs.surfaceContainerHighest,
+                                  borderRadius: const BorderRadius.horizontal(
+                                      left: Radius.circular(8)),
+                                ),
+                                child: Center(
+                                  child: Text('Scan / Type',
+                                      style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: !showGenerator
+                                              ? Colors.white
+                                              : cs.onSurface.withValues(alpha: 0.6))),
+                                ),
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => setSheet(() => showGenerator = true),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: showGenerator
+                                      ? primary
+                                      : cs.surfaceContainerHighest,
+                                  borderRadius: const BorderRadius.horizontal(
+                                      right: Radius.circular(8)),
+                                ),
+                                child: Center(
+                                  child: Text('Generate Sequential',
+                                      style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: showGenerator
+                                              ? Colors.white
+                                              : cs.onSurface.withValues(alpha: 0.6))),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+
+                      // ── Scan / Type mode ──────────────────────────────
+                      if (!showGenerator) ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: serialCtrl,
+                                textInputAction: TextInputAction.done,
+                                style: const TextStyle(fontSize: 14),
+                                decoration: InputDecoration(
+                                  hintText: 'Enter or scan serial no.',
+                                  isDense: true,
+                                  contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 12),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    borderSide: BorderSide(
+                                        color: cs.outline.withValues(alpha: 0.3)),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    borderSide: BorderSide(
+                                        color: cs.outline.withValues(alpha: 0.3)),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    borderSide: BorderSide(color: primary),
+                                  ),
+                                ),
+                                onSubmitted: (_) {
+                                  final sn = serialCtrl.text.trim();
+                                  if (sn.isEmpty) return;
+                                  if (line.serialNoList.contains(sn)) {
+                                    ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+                                      content: Text('Duplicate: "$sn"'),
+                                      backgroundColor: cs.error,
+                                      behavior: SnackBarBehavior.floating,
+                                    ));
+                                    return;
+                                  }
+                                  setState(() {
+                                    line.serialNoList = [...line.serialNoList, sn];
+                                    line.qty = line.serialNoList.length.toDouble();
+                                    line.qtyCtrl.text = _qtyFmt.format(line.qty);
+                                  });
+                                  setSheet(() {});
+                                  serialCtrl.clear();
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            FilledButton(
+                              onPressed: () {
+                                final sn = serialCtrl.text.trim();
+                                if (sn.isEmpty) return;
+                                if (line.serialNoList.contains(sn)) {
+                                  ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+                                    content: Text('Duplicate: "$sn"'),
+                                    backgroundColor: cs.error,
+                                    behavior: SnackBarBehavior.floating,
+                                  ));
+                                  return;
+                                }
+                                setState(() {
+                                  line.serialNoList = [...line.serialNoList, sn];
+                                  line.qty = line.serialNoList.length.toDouble();
+                                  line.qtyCtrl.text = _qtyFmt.format(line.qty);
+                                });
+                                setSheet(() {});
+                                serialCtrl.clear();
+                              },
+                              style: FilledButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10)),
+                              ),
+                              child: const Text('Add'),
+                            ),
+                          ],
+                        ),
+                      ],
+
+                      // ── Sequential generator mode ─────────────────────
+                      if (showGenerator) ...[
+                        // Prefix + Start No row
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              flex: 3,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Prefix',
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          color: cs.onSurface.withValues(alpha: 0.55))),
+                                  const SizedBox(height: 4),
+                                  TextField(
+                                    controller: genPrefixCtrl,
+                                    style: const TextStyle(fontSize: 13),
+                                    decoration: InputDecoration(
+                                      hintText: 'e.g. SN-2024-',
+                                      isDense: true,
+                                      contentPadding: const EdgeInsets.symmetric(
+                                          horizontal: 10, vertical: 10),
+                                      border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                          borderSide: BorderSide(
+                                              color: cs.outline.withValues(alpha: 0.3))),
+                                      enabledBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                          borderSide: BorderSide(
+                                              color: cs.outline.withValues(alpha: 0.3))),
+                                      focusedBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                          borderSide: BorderSide(color: primary)),
+                                    ),
+                                    onChanged: (_) => setSheet(() {}),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              flex: 2,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Start No',
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          color: cs.onSurface.withValues(alpha: 0.55))),
+                                  const SizedBox(height: 4),
+                                  TextField(
+                                    controller: genStartCtrl,
+                                    keyboardType: TextInputType.number,
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.digitsOnly
+                                    ],
+                                    style: const TextStyle(fontSize: 13),
+                                    decoration: InputDecoration(
+                                      hintText: '001',
+                                      isDense: true,
+                                      contentPadding: const EdgeInsets.symmetric(
+                                          horizontal: 10, vertical: 10),
+                                      border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                          borderSide: BorderSide(
+                                              color: cs.outline.withValues(alpha: 0.3))),
+                                      enabledBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                          borderSide: BorderSide(
+                                              color: cs.outline.withValues(alpha: 0.3))),
+                                      focusedBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                          borderSide: BorderSide(color: primary)),
+                                    ),
+                                    onChanged: (_) => setSheet(() {}),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              flex: 2,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Count',
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          color: cs.onSurface.withValues(alpha: 0.55))),
+                                  const SizedBox(height: 4),
+                                  TextField(
+                                    controller: genCountCtrl,
+                                    keyboardType: TextInputType.number,
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.digitsOnly
+                                    ],
+                                    style: const TextStyle(fontSize: 13),
+                                    decoration: InputDecoration(
+                                      hintText: '100',
+                                      isDense: true,
+                                      contentPadding: const EdgeInsets.symmetric(
+                                          horizontal: 10, vertical: 10),
+                                      border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                          borderSide: BorderSide(
+                                              color: cs.outline.withValues(alpha: 0.3))),
+                                      enabledBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                          borderSide: BorderSide(
+                                              color: cs.outline.withValues(alpha: 0.3))),
+                                      focusedBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                          borderSide: BorderSide(color: primary)),
+                                    ),
+                                    onChanged: (_) => setSheet(() {}),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        // Preview
+                        Builder(builder: (_) {
+                          final prefix   = genPrefixCtrl.text;
+                          final startRaw = genStartCtrl.text;
+                          final countRaw = int.tryParse(genCountCtrl.text) ?? 0;
+                          final startNum = int.tryParse(startRaw) ?? 1;
+                          final digits   = startRaw.length.clamp(1, 10);
+                          if (countRaw <= 0 || startRaw.isEmpty) return const SizedBox.shrink();
+                          final previews = List.generate(
+                            countRaw.clamp(0, 3),
+                            (i) => '$prefix${(startNum + i).toString().padLeft(digits, '0')}',
+                          );
+                          final label = countRaw > 3
+                              ? '${previews.join(', ')}, … ($countRaw total)'
+                              : previews.join(', ');
+                          return Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: primary.withValues(alpha: 0.06),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.visibility_outlined, size: 13, color: primary),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(label,
+                                      style: TextStyle(
+                                          fontSize: 11, color: primary),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis),
+                                ),
+                              ],
+                            ),
+                          );
+                        }),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton(
+                            onPressed: () {
+                              final prefix   = genPrefixCtrl.text;
+                              final startRaw = genStartCtrl.text;
+                              final count    = int.tryParse(genCountCtrl.text) ?? 0;
+                              final startNum = int.tryParse(startRaw) ?? 1;
+                              final digits   = startRaw.length.clamp(1, 10);
+                              if (count <= 0) return;
+                              final generated = List.generate(
+                                count,
+                                (i) => '$prefix${(startNum + i).toString().padLeft(digits, '0')}',
+                              );
+                              final dupes = generated.where(line.serialNoList.contains).toList();
+                              final toAdd = generated.where((s) => !line.serialNoList.contains(s)).toList();
+                              if (toAdd.isEmpty) {
+                                ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+                                  content: const Text('All generated serials already exist'),
+                                  backgroundColor: cs.error,
+                                  behavior: SnackBarBehavior.floating,
+                                ));
+                                return;
+                              }
+                              setState(() {
+                                line.serialNoList = [...line.serialNoList, ...toAdd];
+                                line.qty = line.serialNoList.length.toDouble();
+                                line.qtyCtrl.text = _qtyFmt.format(line.qty);
+                              });
+                              setSheet(() {});
+                              if (dupes.isNotEmpty) {
+                                ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+                                  content: Text('Added ${toAdd.length}, skipped ${dupes.length} duplicates'),
+                                  behavior: SnackBarBehavior.floating,
+                                ));
+                              }
+                            },
+                            style: OutlinedButton.styleFrom(
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10)),
+                            ),
+                            child: const Text('Generate & Add'),
+                          ),
+                        ),
+                      ],
+
+                      // ── Entered serial list ───────────────────────────
+                      if (line.serialNoList.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        // Collapse header
+                        GestureDetector(
+                          onTap: () => setSheet(() => showSerialList = !showSerialList),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: cs.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.list_alt_rounded, size: 14, color: primary),
+                                const SizedBox(width: 6),
+                                Text(
+                                  '${line.serialNoList.length} serial${line.serialNoList.length == 1 ? '' : 's'} entered',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: primary),
+                                ),
+                                const Spacer(),
+                                Icon(
+                                  showSerialList
+                                      ? Icons.keyboard_arrow_up_rounded
+                                      : Icons.keyboard_arrow_down_rounded,
+                                  size: 18,
+                                  color: cs.onSurface.withValues(alpha: 0.5),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        if (showSerialList) ...[
+                          const SizedBox(height: 6),
+                          ...line.serialNoList.asMap().entries.map((e) {
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 6),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: cs.surfaceContainerLow,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                    color: cs.outline.withValues(alpha: 0.15)),
+                              ),
+                              child: Row(
+                                children: [
+                                  Text('${e.key + 1}.',
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          color: cs.onSurface.withValues(alpha: 0.4))),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(e.value,
+                                        style: const TextStyle(fontSize: 13)),
+                                  ),
+                                  GestureDetector(
+                                    onTap: () {
+                                      setState(() {
+                                        line.serialNoList = [...line.serialNoList]
+                                          ..removeAt(e.key);
+                                        line.qty = line.serialNoList.length.toDouble();
+                                        line.qtyCtrl.text = _qtyFmt.format(line.qty);
+                                      });
+                                      setSheet(() {});
+                                    },
+                                    child: Icon(Icons.close_rounded,
+                                        size: 16,
+                                        color: cs.onSurface.withValues(alpha: 0.4)),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                        ],
+                      ],
+                    ],
+                    // Batch section
+                    if (line.hasBatch) ...[
+                      const SizedBox(height: 20),
+                      Divider(
+                          height: 1,
+                          color: cs.outline.withValues(alpha: 0.1)),
+                      const SizedBox(height: 16),
+                      Text('Batch No *',
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: cs.onSurface.withValues(alpha: 0.6))),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: line.batchNoCtrl,
+                        textInputAction: TextInputAction.done,
+                        style: const TextStyle(fontSize: 14),
+                        decoration: InputDecoration(
+                          hintText: 'Enter batch number',
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 12),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(
+                                color: cs.outline.withValues(alpha: 0.3)),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(
+                                color: cs.outline.withValues(alpha: 0.3)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(color: primary),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      dateField('Manufacture Date', mfgDate, isMfg: true),
+                      const SizedBox(height: 12),
+                      dateField('Expiry Date', expDate, isMfg: false),
+                    ],
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: FilledButton(
+                        onPressed: creating ? null : confirm,
+                        child: creating
+                            ? const DotsLoading()
+                            : const Text('Confirm',
+                                style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          );
+        },
+      ),
+    );
+  }
+
   // ── Section builders ──────────────────────────────────────────────
 
   Widget _buildDocSection() {
-    final cs = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Date picker
         FieldLabel(label: 'Date'),
         InkWell(
           onTap: _pickDate,
           borderRadius: BorderRadius.circular(12),
-          child: _FieldBox(
+          child: FieldBox(
             child: Row(
               children: [
                 const Icon(Icons.calendar_today_outlined, size: 18),
                 const SizedBox(width: 8),
-                Text(
-                  _dateFmt.format(_docDate),
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500)),
+                Text(_dateFmt.format(_docDate),
+                    style: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w500)),
               ],
             ),
           ),
         ),
         const SizedBox(height: 12),
-        
-        // PO picker
-        FieldLabel(label: 'PO Ref *'),
-        InkWell(
-          onTap: _isLoadingPO ? null : _pickPO,
-          borderRadius: BorderRadius.circular(12),
-          child: FieldBox(
-            child: _isLoadingPO
-              ? const SizedBox(
-                height: 20,
-                child: Center(child: DotsLoading()))
-                : Row(
-                    children: [
-                      const Icon(Icons.receipt_outlined, size: 18),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _selectedPO == null
-                            ? Text(
-                                'Select purchase order',
-                                style: TextStyle(
-                                    fontSize: 14,
-                                    color: cs.onSurface
-                                        .withValues(alpha: 0.4)),
-                              )
-                            : Text(
-                                    _selectedPO!.docNo,
-                                    style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w800,
-                                        color: cs.primary),
-                                  ),
-                      ),
-                      if (_selectedPO != null)
-                        GestureDetector(
-                          onTap: () => setState(() {
-                            _selectedPO = null;
-                            // _poDoc = null;
-                            for (final l in _lines) {
-                              l.dispose();
-                            }
-                            _lines.clear();
-                          }),
-                          child: Icon(Icons.clear,
-                              size: 16,
-                              color: cs.onSurface
-                                  .withValues(alpha: 0.4)),
-                        )
-                      else
-                        Icon(Icons.chevron_right,
-                            size: 18,
-                            color: cs.onSurface
-                                .withValues(alpha: 0.3)),
-                    ],
-                  ),
-          ),
-        ),
-        const SizedBox(height: 4),
-      ],
-    );
-  }
-
-  Widget _buildSupplierSection() {
-      final cs = Theme.of(context).colorScheme;
-      final primary = cs.primary;
-      final muted = cs.onSurface.withValues(alpha: 0.5);
-      final doc = _poDoc;
-
-      return Container(
-        margin: const EdgeInsets.only(bottom: 4),
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: cs.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: cs.outline.withValues(alpha: 0.15)),
-        ),
-        child: doc == null
-          ? const Padding(
-              padding: EdgeInsets.symmetric(vertical: 8),
-              child: Center(child: DotsLoading()),
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(doc.supplierCode,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    color: primary)
-                ),
-                const SizedBox(height: 2),
-                Text(doc.supplierName,
-                    style: const TextStyle(
-                        fontSize: 14, fontWeight: FontWeight.w700)),
-                if (_hasAddr([
-                  doc.address1,
-                  doc.address2,
-                  doc.address3,
-                  doc.address4
-                ])) ...[
-                  const SizedBox(height: 8),
-                  _infoRow(
-                      Icons.location_on_outlined,
-                      _joinAddr([
-                        doc.address1,
-                        doc.address2,
-                        doc.address3,
-                        doc.address4
-                      ]),
-                      muted),
-                ],
-              ],
-             ),
-    );
-  }
-
-  bool _hasAddr(List<String?> parts) =>
-      parts.any((p) => p != null && p.isNotEmpty);
-
-  String _joinAddr(List<String?> parts) =>
-      parts.where((p) => p != null && p.isNotEmpty).join(', ');
-
-  Widget _infoRow(IconData icon, String text, Color muted) => Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 14, color: muted),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(text,
-                style: TextStyle(fontSize: 12, color: muted, height: 1.4),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis),
-          ),
-        ],
-      );
-
-  Widget _buildNotesSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
         FieldLabel(label: 'Description'),
         TextFormField(
           controller: _descriptionCtrl,
@@ -1039,6 +1948,131 @@ Future<void> _fetchPODetails(int docID) async {
     );
   }
 
+  Widget _buildFromPOSection() {
+    final cs = Theme.of(context).colorScheme;
+    final primary = cs.primary;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // PO picker
+        FieldLabel(label: 'Selected PO'),
+        InkWell(
+          onTap: _isLoadingPO ? null : _pickPO,
+          borderRadius: BorderRadius.circular(12),
+          child: FieldBox(
+            child: _isLoadingPO
+                ? const SizedBox(
+                    height: 20, child: Center(child: DotsLoading()))
+                : Row(
+                    children: [
+                      const Icon(Icons.receipt_outlined, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _selectedPO == null
+                            ? Text('Select purchase order',
+                                style: TextStyle(
+                                    fontSize: 14,
+                                    color: cs.onSurface
+                                        .withValues(alpha: 0.4)))
+                            : Text(_selectedPO!.docNo,
+                                style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: cs.primary)),
+                      ),
+                      if (_selectedPO != null)
+                        GestureDetector(
+                          onTap: () async {
+                            final hasQty = _lines.any((l) => l.qty > 0);
+                            if (hasQty) {
+                              final confirmed = await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) {
+                                  final cs = Theme.of(ctx).colorScheme;
+                                  return AlertDialog(
+                                    shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(16)),
+                                    title: const Text('Clear PO?',
+                                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                                    content: const Text(
+                                      'You have items with qty entered. Clearing the PO will remove all items. Continue?',
+                                      style: TextStyle(fontSize: 13),
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(ctx, false),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      FilledButton(
+                                        style: FilledButton.styleFrom(
+                                            backgroundColor: cs.error),
+                                        onPressed: () => Navigator.pop(ctx, true),
+                                        child: const Text('Clear'),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              );
+                              if (confirmed != true) return;
+                            }
+                            setState(() {
+                              _selectedPO = null;
+                              _purchaseDoc = null;
+                              for (final l in _lines) { l.dispose(); }
+                              _lines.clear();
+                            });
+                          },
+                          child: Icon(Icons.clear,
+                              size: 16,
+                              color: cs.onSurface.withValues(alpha: 0.4)),
+                        )
+                      else
+                        Icon(Icons.chevron_right,
+                            size: 18,
+                            color: cs.onSurface.withValues(alpha: 0.3)),
+                    ],
+                  ),
+          ),
+        ),
+        // Supplier card (shown once PO is selected)
+        if (_selectedPO != null) ...[
+        const SizedBox(height: 12),
+        FieldLabel(label: 'Supplier'),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: cs.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: cs.outline.withValues(alpha: 0.15)),
+          ),
+          child: _purchaseDoc == null
+          ? const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Center(child: DotsLoading()),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(_purchaseDoc!.supplierCode,
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: primary)),
+                const SizedBox(height: 2),
+                Text(_purchaseDoc!.supplierName,
+                    style: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w700)),
+              ],
+            ),
+        ),
+        ], // end if (_selectedPO != null)
+        const SizedBox(height: 4),
+      ],
+    );
+  }
+
   Widget _buildItemsSection() {
     final cs = Theme.of(context).colorScheme;
     final primary = cs.primary;
@@ -1050,7 +2084,25 @@ Future<void> _fetchPODetails(int docID) async {
       );
     }
 
-  if (_selectedPO != null){
+    if (_selectedPO == null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 28),
+        child: Center(
+          child: Column(
+            children: [
+              Icon(Icons.receipt_long_outlined,
+                  size: 40, color: cs.onSurface.withValues(alpha: 0.25)),
+              const SizedBox(height: 10),
+              Text('Select a purchase order to load items',
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: cs.onSurface.withValues(alpha: 0.4))),
+            ],
+          ),
+        ),
+      );
+    }
+
     if (_lines.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 28),
@@ -1068,62 +2120,220 @@ Future<void> _fetchPODetails(int docID) async {
                       ..._lines.asMap().entries.map((entry) {
                         final i = entry.key;
                         final line = entry.value;
-                        return Slidable(
-                          key: ObjectKey(line),
-                          endActionPane: ActionPane(
-                            motion: const DrawerMotion(),
-                            extentRatio: 0.26,
-                            children: [
-                              CustomSlidableAction(
-                                onPressed: (_) => _deleteLine(i),
-                                backgroundColor:
-                                    Colors.red.withValues(alpha: 0.12),
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: const [
-                                    Icon(Icons.delete_outline,
-                                        size: 26, color: Colors.red),
-                                    SizedBox(height: 4),
-                                    Text('Remove',
-                                        style: TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600,
-                                            color: Colors.red)),
-                                  ],
-                                ),
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Slidable(
+                              key: ValueKey(i),
+                              endActionPane: ActionPane(
+                                motion: const DrawerMotion(),
+                                extentRatio: 0.48,
+                                children: [
+                                  CustomSlidableAction(
+                                    onPressed: (_) => _openEditSheet(line),
+                                    backgroundColor:
+                                        const Color(0xFF1565C0).withValues(alpha: 0.12),
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: const [
+                                        Icon(Icons.edit_outlined,
+                                            size: 26, color: Color(0xFF1565C0)),
+                                        SizedBox(height: 4),
+                                        Text('Edit',
+                                            style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w600,
+                                                color: Color(0xFF1565C0))),
+                                      ],
+                                    ),
+                                  ),
+                                  CustomSlidableAction(
+                                    onPressed: (_) => _deleteLine(i),
+                                    backgroundColor: Colors.red.withValues(alpha: 0.12),
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: const [
+                                        Icon(Icons.delete_outline, size: 26, color: Colors.red),
+                                        SizedBox(height: 4),
+                                        Text('Delete',
+                                            style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w600,
+                                                color: Colors.red)),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                          child: _LineItemCard(
-                            index: i,
-                            line: line,
-                            primary: primary,
-                            cs: cs,
-                            qtyFmt: _qtyFmt,
-                            onStepDown: () => _stepQty(line, -1),
-                            onStepUp: () => _stepQty(line, 1),
-                            onQtyEditComplete: () => _clampQty(line),
+                              child: _LineItemCard(
+                                index: i,
+                                line: line,
+                                primary: primary,
+                                cs: cs,
+                                qtyFmt: _qtyFmt,
+                                showImage: _showImage,
+                                onStepDown: () => _stepQty(line, -1),
+                                onStepUp: () => _stepQty(line, 1),
+                                onQtyEditComplete: () => _clampQty(line),
+                              ),
+                            ),
                           ),
                         );
                       }),
                     const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: _openItemPicker,
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text('Add Item'),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(double.infinity, 44),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
+                    // OutlinedButton.icon(
+                    //   onPressed: _openItemPicker,
+                    //   icon: const Icon(Icons.add, size: 18),
+                    //   label: const Text('Add Item'),
+                    //   style: OutlinedButton.styleFrom(
+                    //     minimumSize: const Size(double.infinity, 44),
+                    //     shape: RoundedRectangleBorder(
+                    //         borderRadius: BorderRadius.circular(12)),
+                    //   ),
+                    // ),
                   ],
                 );
     }
   }
 
+  void _showReceivingSummary() {
+    final cs = Theme.of(context).colorScheme;
+    final primary = cs.primary;
 
+    final poLines = _lines.where((l) => l.fromPO).toList();
+    final totalPOItems = poLines.length;
+    final fullyReceived = poLines.where((l) => l.isFullyReceived).length;
+    final totalReceiveQty = _lines.fold(0.0, (s, l) => s + l.qty);
 
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.3,
+        minChildSize: 0.3,
+        maxChildSize: 0.85,
+        expand: false,
+        builder: (_, sc) => Material(
+          color: cs.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 15),
+            child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Handle
+              Center(
+                child: Container(
+                  margin: const EdgeInsets.only(top: 12, bottom: 4),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: cs.onSurface.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: Text('Summary',
+                        style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: primary)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              // Stat cards
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                decoration: BoxDecoration(
+                  color: primary.withValues(alpha: 0.07),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: primary.withValues(alpha: 0.15)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  children: [
+                    Icon(Icons.inventory_2_outlined, size: 16, color: primary),
+                    const SizedBox(width: 6),
+                    Text('Total Received Items',
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: cs.onSurface.withValues(alpha: 0.6))),
+                    Spacer(),
+                    Text('${_lines.length}',
+                        style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: primary)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                decoration: BoxDecoration(
+                  color: primary.withValues(alpha: 0.07),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: primary.withValues(alpha: 0.15)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  children: [
+                    Icon(Icons.move_to_inbox_outlined, size: 16, color: primary),
+                    const SizedBox(width: 6),
+                    Text('Total Received Qty',
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: cs.onSurface.withValues(alpha: 0.6))),
+                    Spacer(),
+                    Text(_qtyFmt.format(totalReceiveQty),
+                        style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: primary)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                decoration: BoxDecoration(
+                  color: fullyReceived == totalPOItems ? Colors.green.withValues(alpha: 0.07) : Colors.yellow.withValues(alpha: 0.07),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: primary.withValues(alpha: 0.15)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  children: [
+                    Icon(Icons.check_circle_outline, size: 16, color: primary),
+                    const SizedBox(width: 6),
+                    Text('Items From PO',
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: cs.onSurface.withValues(alpha: 0.6))),
+                    Spacer(),
+                    Text('$fullyReceived/$totalPOItems',
+                        style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: primary)),
+                  ],
+                ),
+              ),       
+              const SizedBox(height: 40),
+            ],
+          ),
+            ),
+        ),
+      ),
+    );
   }
 
 }
@@ -1138,6 +2348,7 @@ class _LineItemCard extends StatelessWidget {
   final Color primary;
   final ColorScheme cs;
   final NumberFormat qtyFmt;
+  final bool showImage;
   final VoidCallback onStepDown;
   final VoidCallback onStepUp;
   final VoidCallback onQtyEditComplete;
@@ -1148,125 +2359,239 @@ class _LineItemCard extends StatelessWidget {
     required this.primary,
     required this.cs,
     required this.qtyFmt,
+    required this.showImage,
     required this.onStepDown,
     required this.onStepUp,
     required this.onQtyEditComplete,
   });
 
+  Widget _badge() => Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: primary.withValues(alpha: 0.1),
+          shape: BoxShape.circle,
+        ),
+        child: Center(
+          child: Text(
+            '${index + 1}',
+            style: TextStyle(
+                fontSize: 13, fontWeight: FontWeight.w700, color: primary),
+          ),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-        decoration: BoxDecoration(
-          color: (Theme.of(context).cardTheme.color ?? cs.surface)
-              .withValues(alpha: 0.5),
-          border: Border.all(
-              color: line.fromPO
-                  ? primary.withValues(alpha: 0.25)
-                  : cs.outline.withValues(alpha: 0.18)),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
+    final isFullyReceived = line.isFullyReceived;
+    final isPartial = line.qty > 0 && !isFullyReceived;
+
+    final borderColor = line.fromPO
+        ? isFullyReceived
+            ? Colors.green.withValues(alpha: 0.45)
+            : isPartial
+                ? const Color(0xFFFF9700).withValues(alpha: 0.45)
+                : primary.withValues(alpha: 0.2)
+        : cs.outline.withValues(alpha: 0.18);
+
+    final receiveQtyColor = line.fromPO
+        ? isFullyReceived
+            ? Colors.green
+            : isPartial
+                ? const Color(0xFFFF9700)
+                : cs.onSurface.withValues(alpha: 0.45)
+        : cs.onSurface.withValues(alpha: 0.45);
+
+    // Leading: image or index badge
+    Widget leading;
+    if (showImage && line.itemImage != null && line.itemImage!.isNotEmpty) {
+      try {
+        final raw = line.itemImage!.contains(',')
+            ? line.itemImage!.split(',').last
+            : line.itemImage!;
+        leading = ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.memory(
+            base64Decode(raw),
+            width: 44,
+            height: 44,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            errorBuilder: (_, __, ___) => _badge(),
+          ),
+        );
+      } catch (_) {
+        leading = _badge();
+      }
+    } else {
+      leading = _badge();
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: (line.fromPO && isFullyReceived)
+            ? Colors.green.withValues(alpha: 0.04)
+            : (Theme.of(context).cardTheme.color ?? cs.surface).withValues(alpha: 0.5),
+        border: Border.all(color: borderColor),
+      ),
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Index badge
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: primary.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Text(
-                  '${index + 1}',
-                  style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: primary),
+            // Top row: image/badge + code / description / uom
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                leading,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              line.stockCode,
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: primary),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (isFullyReceived)
+                            const Icon(Icons.check_circle_rounded,
+                                size: 16, color: Colors.green),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        line.description,
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: cs.onSurface.withValues(alpha: 0.65)),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        line.uom,
+                        style: TextStyle(
+                            fontSize: 11,
+                            color: cs.onSurface.withValues(alpha: 0.45)),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            // Ordered qty | stepper (full width)
+            Row(
+              children: [
+                if (line.fromPO && line.orderedQty > 0)
+                  Text(
+                    'Ordered: ${qtyFmt.format(line.orderedQty)}',
+                    style: TextStyle(
+                        fontSize: 11,
+                        color: cs.onSurface.withValues(alpha: 0.45)),
+                  ),
+                const Spacer(),
+                _QtyStepper(
+                  ctrl: line.qtyCtrl,
+                  primary: primary,
+                  cs: cs,
+                  qtyColor: receiveQtyColor,
+                  onStepDown: onStepDown,
+                  onStepUp: onStepUp,
+                  onEditComplete: onQtyEditComplete,
+                ),
+              ],
+            ),
+            // Progress bar (PO items only)
+            if (line.fromPO && line.orderedQty > 0) ...[
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(3),
+                child: LinearProgressIndicator(
+                  value: (line.qty / line.orderedQty).clamp(0.0, 1.0),
+                  backgroundColor: cs.outline.withValues(alpha: 0.12),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    isFullyReceived
+                        ? Colors.green
+                        : const Color(0xFFFF9700),
+                  ),
+                  minHeight: 3,
                 ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Row 1: stock code + from PO badge
-                  Row(
+            ],
+            // Batch indicator
+            if (line.hasBatch) ...[
+              const SizedBox(height: 6),
+              ValueListenableBuilder<TextEditingValue>(
+                valueListenable: line.batchNoCtrl,
+                builder: (_, v, __) {
+                  final text = v.text.trim();
+                  final missing = text.isEmpty;
+                  return Row(
                     children: [
-                      Expanded(
-                        child: Text(
-                          line.stockCode,
-                          style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: primary),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      if (line.fromPO) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 5, vertical: 1),
-                          decoration: BoxDecoration(
-                            color: primary.withValues(alpha: 0.08),
-                            borderRadius:
-                                BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            'FROM PO',
-                            style: TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.w700,
-                                color: primary,
-                                letterSpacing: 0.4),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  // Row 2: description
-                  Text(
-                    line.description,
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: cs.onSurface.withValues(alpha: 0.65)),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 8),
-                  // Row 3: UOM | qty stepper
-                  Row(
-                    children: [
-                      Text(line.uom,
-                          style: TextStyle(
-                              fontSize: 11,
-                              color: cs.onSurface
-                                  .withValues(alpha: 0.5))),
-                      const Spacer(),
-                      // Qty stepper
-                      _QtyStepper(
-                        ctrl: line.qtyCtrl,
-                        primary: primary,
-                        cs: cs,
-                        onStepDown: onStepDown,
-                        onStepUp: onStepUp,
-                        onEditComplete: onQtyEditComplete,
+                      Icon(Icons.tag_rounded,
+                          size: 12,
+                          color: missing
+                              ? Colors.red.withValues(alpha: 0.7)
+                              : cs.onSurface.withValues(alpha: 0.4)),
+                      const SizedBox(width: 4),
+                      Text(
+                        missing ? 'Batch no required' : text,
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontStyle: missing
+                                ? FontStyle.italic
+                                : FontStyle.normal,
+                            color: missing
+                                ? Colors.red.withValues(alpha: 0.8)
+                                : primary),
                       ),
                     ],
-                  ),
-                ],
+                  );
+                },
               ),
-            ),
+            ],
+            // Serial indicator
+            if (line.hasSerial) ...[
+              const SizedBox(height: 6),
+              Builder(builder: (_) {
+                final entered = line.serialNoList.length;
+                final needed = line.qty.toInt();
+                final ok = entered > 0 && entered == needed;
+                final color = ok
+                    ? Colors.green
+                    : entered == 0
+                        ? Colors.red.withValues(alpha: 0.8)
+                        : const Color(0xFFFF9700);
+                return Row(
+                  children: [
+                    Icon(Icons.qr_code_rounded, size: 12, color: color),
+                    const SizedBox(width: 4),
+                    Text(
+                      entered == 0
+                          ? 'Serial no. required'
+                          : '$entered${needed > 0 ? '/$needed' : ''} serial${entered == 1 ? '' : 's'}',
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontStyle: entered == 0
+                              ? FontStyle.italic
+                              : FontStyle.normal,
+                          color: color),
+                    ),
+                  ],
+                );
+              }),
+            ],
           ],
         ),
-      ),
-    );
+      );
   }
 }
 
@@ -1277,6 +2602,7 @@ class _LineItemCard extends StatelessWidget {
 class _QtyStepper extends StatelessWidget {
   final TextEditingController ctrl;
   final Color primary;
+  final Color? qtyColor;
   final ColorScheme cs;
   final VoidCallback onStepDown;
   final VoidCallback onStepUp;
@@ -1286,6 +2612,7 @@ class _QtyStepper extends StatelessWidget {
     required this.ctrl,
     required this.primary,
     required this.cs,
+    this.qtyColor,
     required this.onStepDown,
     required this.onStepUp,
     required this.onEditComplete,
@@ -1317,7 +2644,7 @@ class _QtyStepper extends StatelessWidget {
             style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
-                color: primary),
+                color: qtyColor ?? primary),
             decoration: InputDecoration(
               isDense: true,
               contentPadding: const EdgeInsets.symmetric(
@@ -1379,494 +2706,6 @@ class _StepButton extends StatelessWidget {
         ),
         child: Icon(icon, size: 16, color: primary),
       ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Field helpers
-// ─────────────────────────────────────────────────────────────────────
-
-class _FieldLabel extends StatelessWidget {
-  final String label;
-  const _FieldLabel({required this.label});
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Text(label,
-            style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.6))),
-      );
-}
-
-class _FieldBox extends StatelessWidget {
-  final Widget child;
-  const _FieldBox({required this.child});
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: child,
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// PO picker page
-// ─────────────────────────────────────────────────────────────────────
-
-class _POPickerPage extends StatefulWidget {
-  final String apiKey;
-  final String companyGUID;
-  final int userID;
-  final String userSessionID;
-
-  const _POPickerPage({
-    required this.apiKey,
-    required this.companyGUID,
-    required this.userID,
-    required this.userSessionID
-  });
-
-  @override
-  State<_POPickerPage> createState() => _POPickerPageState();
-}
-
-class _POPickerPageState extends State<_POPickerPage> {
-  final _searchCtrl = TextEditingController();
-  final _scrollCtrl = ScrollController();
-
-  List<ReceivingPurchaseItem> _items = [];
-  bool _loading = true;
-  String? _error;
-
-  // Pagination
-  int _currentPage = 0;
-  int _totalPages = 1;
-  int _totalCount = 0;
-  final int _pageSize = 20;
-
-  // Sort
-  String _sortBy = 'DocDate';
-  bool _sortAsc = false;
-
-  DateFormat _dateFmt = DateFormat('dd MMM yyyy');
-
-  @override
-  void initState() {
-    super.initState();
-    SessionManager.getDateFormat().then((fmt) {
-      if (mounted) setState(() => _dateFmt = DateFormat(fmt));
-    });
-    _fetch(page: 0);
-  }
-
-  @override
-  void dispose() {
-    _searchCtrl.dispose();
-    _scrollCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _fetch({required int page}) async {
-    if (_loading && page != 0) return;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final response = await BaseClient.post(
-        ApiEndpoints.getReceivingPurchaseList,
-        body: {
-          'apiKey': widget.apiKey,
-          'companyGUID': widget.companyGUID,
-          'userID': widget.userID,
-          'userSessionID': widget.userSessionID,
-          'pageIndex': page,
-          'pageSize': _pageSize,
-          'sortBy': _sortBy,
-          'isSortByAscending': _sortAsc,
-          'searchTerm': _searchCtrl.text.trim().isEmpty
-              ? null
-              : _searchCtrl.text.trim(),
-        },
-      );
-
-      List<dynamic> raw;
-      int totalRecord;
-      int pageSize;
-      if (response is List) {
-        raw = response;
-        totalRecord = raw.length;
-        pageSize = _pageSize;
-      } else if (response is Map<String, dynamic>) {
-        raw = (response['data'] as List<dynamic>?) ?? [];
-        final pg = response['pagination'] as Map<String, dynamic>?;
-        totalRecord = (pg?['totalRecord'] as int?) ?? raw.length;
-        pageSize = (pg?['pageSize'] as int?) ?? _pageSize;
-      } else {
-        raw = [];
-        totalRecord = 0;
-        pageSize = _pageSize;
-      }
-
-      if (mounted) {
-        setState(() {
-          _items = raw
-              .map((e) =>
-                  ReceivingPurchaseItem.fromJson(e as Map<String, dynamic>))
-              .toList();
-          _currentPage = page;
-          _totalCount = totalRecord;
-          _totalPages = pageSize > 0 ? (totalRecord / pageSize).ceil() : 1;
-          if (_totalPages < 1) _totalPages = 1;
-          _loading = false;
-        });
-        if (_scrollCtrl.hasClients) _scrollCtrl.jumpTo(0);
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _error = e.toString();
-        });
-      }
-    }
-  }
-
-  void _openSortSheet() {
-    String tempSort = _sortBy;
-    bool tempAsc = _sortAsc;
-    final primary = Theme.of(context).colorScheme.primary;
-    final cs = Theme.of(context).colorScheme;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => StatefulBuilder(
-        builder: (ctx, setSheet) => DraggableScrollableSheet(
-          initialChildSize: 0.45,
-          minChildSize: 0.35,
-          maxChildSize: 0.6,
-          expand: false,
-          builder: (_, sc) => Material(
-            color: cs.surface,
-            borderRadius:
-                const BorderRadius.vertical(top: Radius.circular(20)),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: cs.onSurface.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text('Sort By',
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: primary)),
-                  const SizedBox(height: 10),
-                  DropdownButtonFormField<String>(
-                    initialValue: tempSort,
-                    decoration: InputDecoration(
-                      isDense: true,
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 10),
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                          value: 'DocDate', child: Text('Doc Date')),
-                      DropdownMenuItem(
-                          value: 'DocNo', child: Text('Doc No')),
-                      DropdownMenuItem(
-                          value: 'SupplierName',
-                          child: Text('Supplier Name')),
-                    ],
-                    onChanged: (v) =>
-                        setSheet(() => tempSort = v ?? tempSort),
-                  ),
-                  const SizedBox(height: 12),
-                  Text('Direction',
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: primary)),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: DirectionChip(
-                          label: 'Ascending',
-                          icon: Icons.arrow_upward_rounded,
-                          selected: tempAsc,
-                          onTap: () => setSheet(() => tempAsc = true),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: DirectionChip(
-                          label: 'Descending',
-                          icon: Icons.arrow_downward_rounded,
-                          selected: !tempAsc,
-                          onTap: () => setSheet(() => tempAsc = false),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 46,
-                    child: FilledButton(
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        setState(() {
-                          _sortBy = tempSort;
-                          _sortAsc = tempAsc;
-                        });
-                        _fetch(page: 0);
-                      },
-                      child: const Text('Apply'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    final cs = Theme.of(context).colorScheme;
-    final start = _currentPage * _pageSize + 1;
-    final end = ((_currentPage + 1) * _pageSize).clamp(0, _totalCount);
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Purchase Order',
-            style: TextStyle(fontWeight: FontWeight.w600)),
-        centerTitle: true,
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(60),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-            child: IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _searchCtrl,
-                      textInputAction: TextInputAction.search,
-                      onSubmitted: (_) => _fetch(page: 0),
-                      onChanged: (_) => setState(() {}),
-                      decoration: InputDecoration(
-                        hintText: 'Search by PO no. or supplier...',
-                        prefixIcon: const Icon(Icons.search, size: 20),
-                        suffixIcon: _searchCtrl.text.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(Icons.clear, size: 18),
-                                onPressed: () {
-                                  _searchCtrl.clear();
-                                  _fetch(page: 0);
-                                })
-                            : null,
-                        isDense: true,
-                        contentPadding:
-                            const EdgeInsets.symmetric(vertical: 10),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none,
-                        ),
-                        filled: true,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  InkWell(
-                    onTap: _openSortSheet,
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      width: 44,
-                      decoration: BoxDecoration(
-                        color: cs.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Icon(Icons.sort_rounded,
-                          size: 20, color: primary),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-      body: _loading
-          ? const Center(child: DotsLoading())
-          : _error != null
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text('Error: $_error'),
-                      const SizedBox(height: 12),
-                      FilledButton(
-                          onPressed: () => _fetch(page: 0),
-                          child: const Text('Retry')),
-                    ],
-                  ),
-                )
-              : Column(
-                  children: [
-                    Expanded(
-                      child: _items.isEmpty
-                          ? Center(
-                              child: Text(
-                                'No purchase orders available',
-                                style: TextStyle(
-                                    color:
-                                        cs.onSurface.withValues(alpha: 0.4)),
-                              ),
-                            )
-                          : ListView.builder(
-                              controller: _scrollCtrl,
-                              itemCount: _items.length + 1,
-                              itemBuilder: (_, i) {
-                                if (i == _items.length) {
-                                  return Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 14),
-                                    child: Center(
-                                      child: Text(
-                                        'Showing $start–$end of $_totalCount records',
-                                        style: TextStyle(
-                                            fontSize: 12,
-                                            color: cs.onSurface
-                                                .withValues(alpha: 0.5)),
-                                      ),
-                                    ),
-                                  );
-                                }
-                                final po = _items[i];
-                                DateTime? d;
-                                try {
-                                  d = DateTime.parse(po.docDate);
-                                } catch (_) {}
-                                return InkWell(
-                                  onTap: () => Navigator.pop(context, po),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 16, vertical: 12),
-                                    decoration: BoxDecoration(
-                                      border: Border(
-                                        bottom: BorderSide(
-                                          color: cs.outline
-                                              .withValues(alpha: 0.08),
-                                        ),
-                                      ),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Container(
-                                          width: 40,
-                                          height: 40,
-                                          decoration: BoxDecoration(
-                                            color: primary
-                                                .withValues(alpha: 0.1),
-                                            borderRadius:
-                                                BorderRadius.circular(10),
-                                          ),
-                                          child: Icon(
-                                              Icons.shopping_basket_outlined,
-                                              size: 20,
-                                              color: primary),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Row(
-                                                children: [
-                                                  Expanded(
-                                                    child: Text(
-                                                      po.docNo,
-                                                      style: TextStyle(
-                                                          fontSize: 13,
-                                                          fontWeight: FontWeight.w700,
-                                                          color: primary),
-                                                    ),
-                                                  ),
-                                                  if (d != null)
-                                                    Text(
-                                                      _dateFmt.format(d),
-                                                      style: TextStyle(
-                                                          fontSize: 11,
-                                                          color: cs.onSurface
-                                                              .withValues(alpha: 0.5)),
-                                                    ),
-                                                ],
-                                              ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                po.supplierName,
-                                                style: const TextStyle(
-                                                    fontSize: 13,
-                                                    fontWeight: FontWeight.w500),
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                    ),
-                    PaginationBar(
-                      currentPage: _currentPage,
-                      totalPages: _totalPages,
-                      isLoading: _loading,
-                      primary: primary,
-                      onPrev: _currentPage > 0
-                          ? () => _fetch(page: _currentPage - 1)
-                          : null,
-                      onNext: _currentPage < _totalPages - 1
-                          ? () => _fetch(page: _currentPage + 1)
-                          : null,
-                    ),
-                  ],
-                ),
     );
   }
 }

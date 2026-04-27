@@ -107,6 +107,7 @@ class ApiEndpoints {
   static const String getReceivingList = '/Receiving/GetReceivingListByCompanyId';
   static const String getReceiving = '/Receiving/GetReceiving';
   static const String createReceiving = '/Receiving/CreateReceiving';
+  static const String updateReceiving = '/Receiving/UpdateReceiving';
   static const String removeReceiving = '/Receiving/RemoveReceiving';
   static const String getReceivingReport = '/Report/GetReceivingReport';
   static const String getReceivingPurchaseList = '/Purchase/GetReceivingPurchaseList';
@@ -147,6 +148,9 @@ class ApiEndpoints {
   static const String updateInbound = '/Inbound/UpdateInbound';
   static const String removeInbound= '/Inbound/RemoveInbound';
   static const String getInboundReport = '/Report/GetInboundReport';
+
+  // ── Stock Batch ──────────────────────────────────
+  static const String createStockBatch = '/StockBatch/CreateStockBatch';
 
   // ── Put Away ──────────────────────────────────
   static const String getPutAwayList = '/PutAway/GetPutAwayListByCompanyId';

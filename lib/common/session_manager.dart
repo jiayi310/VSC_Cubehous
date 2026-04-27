@@ -331,7 +331,7 @@ class SessionManager {
 
   // ── Receiving Draft ──────────────────────────────────────
 
-  static Future<void> saveReceivingraft(String jsonStr) =>
+  static Future<void> saveReceivingDraft(String jsonStr) =>
       _storage.write(key: 'receiving_draft', value: jsonStr);
 
   static Future<String?> getReceivingDraft() =>

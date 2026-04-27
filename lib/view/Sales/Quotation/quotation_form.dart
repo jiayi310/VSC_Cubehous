@@ -1743,46 +1743,46 @@ class _LineItemCardQuotationState extends State<_LineItemCardQuotation> {
             key: widget.key,
             // Slide LEFT → edit + delete
             endActionPane: ActionPane(
-            motion: const DrawerMotion(),
-            extentRatio: 0.48,
-            children: [
-              CustomSlidableAction(
-                onPressed: (_) => _openEditSheet(),
-                backgroundColor:
-                    const Color(0xFF1565C0).withValues(alpha: 0.12),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: const [
-                    Icon(Icons.edit_outlined,
-                        size: 26, color: Color(0xFF1565C0)),
-                    SizedBox(height: 4),
-                    Text('Edit',
-                        style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF1565C0))),
-                  ],
+              motion: const DrawerMotion(),
+              extentRatio: 0.48,
+              children: [
+                CustomSlidableAction(
+                  onPressed: (_) => _openEditSheet(),
+                  backgroundColor:
+                      const Color(0xFF1565C0).withValues(alpha: 0.12),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.edit_outlined,
+                          size: 26, color: Color(0xFF1565C0)),
+                      SizedBox(height: 4),
+                      Text('Edit',
+                          style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF1565C0))),
+                    ],
+                  ),
                 ),
-              ),
-              CustomSlidableAction(
-                onPressed: (_) => widget.onRemove(),
-                backgroundColor: Colors.red.withValues(alpha: 0.12),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: const [
-                    Icon(Icons.delete_outline, size: 26, color: Colors.red),
-                    SizedBox(height: 4),
-                    Text('Delete',
-                        style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.red)),
-                  ],
+                CustomSlidableAction(
+                  onPressed: (_) => widget.onRemove(),
+                  backgroundColor: Colors.red.withValues(alpha: 0.12),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.delete_outline, size: 26, color: Colors.red),
+                      SizedBox(height: 4),
+                      Text('Delete',
+                          style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.red)),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-          child: GestureDetector(
+              ],
+            ),
+            child: GestureDetector(
             onTap: () => setState(() => _expanded = !_expanded),
             child: Container(
               padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),

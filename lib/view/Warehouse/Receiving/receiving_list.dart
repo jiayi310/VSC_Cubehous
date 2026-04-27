@@ -1,3 +1,4 @@
+import 'package:cubehous/view/Common/common_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
@@ -35,16 +36,16 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
 
   // Settings
   int _itemsPerPage = 20;
-
-  // Data
-  List<ReceivingListItem> _items = [];
-  bool _isLoading = false;
-  String? _error;
-
-  // Pagination
   int _currentPage = 0;
   int _totalPages = 1;
   int _totalCount = 0;
+
+  // Data
+  List<ReceivingListItem> _items = [];
+  bool _isInitialized = false;
+  bool _isLoading = false;
+  bool _hasDraft = false;
+  String? _error;
 
   // Search & sort
   final _searchController = TextEditingController();
@@ -55,12 +56,11 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
   // Date filter
   DateTime _fromDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
   DateTime _toDate = DateTime.now();
-  final _dateFmt = DateFormat('dd/MM/yyyy');
+  late DateFormat _dateFmt;
 
   final _scrollController = ScrollController();
 
-  int get _activeFilters =>
-      (_sortBy != 'DocNo' ? 1 : 0) + (_sortAsc ? 1 : 0);
+  int get _activeFilters => (_sortBy != 'DocNo' ? 1 : 0) + (_sortAsc ? 1 : 0);
 
   @override
   void initState() {
@@ -83,6 +83,7 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
       SessionManager.getUserSessionID(),
       SessionManager.getUserAccessRight(),
       SessionManager.getItemsPerPage(),
+      SessionManager.getDateFormat(),
     ]);
     _apiKey = results[0] as String;
     _companyGUID = results[1] as String;
@@ -90,147 +91,23 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
     _userSessionID = results[3] as String;
     _accessRights = results[4] as List<String>;
     _itemsPerPage = results[5] as int;
+    final de = results[6] as String;
+    _dateFmt = DateFormat(de);
     await _fetchReceivings(page: 0);
+    if (mounted) setState(() => _isInitialized = true);
+  }
+
+  Future<void> _refreshDraftFlag() async {
+    final has = await SessionManager.hasReceivingDraft();
+    if (mounted) setState(() => _hasDraft = has);
   }
 
   bool _hasAccess(String right) => _accessRights.contains(right);
 
-  void _showNoAccessDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Access Denied'),
-        content: const Text(
-            'You do not have the access right to perform this action.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<bool?> _confirmDelete(String docNo) {
-    return showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        final cs = Theme.of(ctx).colorScheme;
-        return AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          contentPadding: EdgeInsets.zero,
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 20),
-              Container(
-                width: 80,
-                height: 64,
-                decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha: 0.10),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.delete_outline_rounded,
-                    size: 32, color: Colors.red),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Delete Receiving',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Text(
-                  'Are you sure you want to delete\n$docNo?',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      fontSize: 13,
-                      color: cs.onSurface.withValues(alpha: 0.6),
-                      height: 1.5),
-                ),
-              ),
-              const SizedBox(height: 24),
-              Divider(height: 1, color: cs.outline.withValues(alpha: 0.15)),
-              IntrinsicHeight(
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextButton(
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.only(
-                                bottomLeft: Radius.circular(20)),
-                          ),
-                        ),
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: Text('Cancel',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: cs.onSurface.withValues(alpha: 0.6))),
-                      ),
-                    ),
-                    VerticalDivider(
-                        width: 1,
-                        color: cs.outline.withValues(alpha: 0.15)),
-                    Expanded(
-                      child: TextButton(
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.only(
-                                bottomRight: Radius.circular(20)),
-                          ),
-                        ),
-                        onPressed: () => Navigator.pop(ctx, true),
-                        child: const Text('Delete',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.red)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Future<bool> _deleteReceiving(int docID) async {
-    try {
-      await BaseClient.post(
-        ApiEndpoints.removeReceiving,
-        body: {
-          'apiKey': _apiKey,
-          'companyGUID': _companyGUID,
-          'userID': _userID,
-          'userSessionID': _userSessionID,
-          'docID': docID,
-        },
-      );
-      return true;
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(
-            content: Text('Failed to delete: $e'),
-            behavior: SnackBarBehavior.floating,
-          ));
-      }
-      return false;
-    }
-  }
-
   Future<void> _fetchReceivings({required int page}) async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
     if (_isLoading) return;
     setState(() {
       _isLoading = true;
@@ -281,12 +158,103 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
     }
   }
 
-  Future<void> _onRefresh() => _fetchReceivings(page: 0);
-
   void _onSearchSubmit(String value) {
     setState(() => _searchQuery = value.trim());
     _fetchReceivings(page: 0);
   }
+
+  Future<void> _onEditTap(ReceivingListItem item) async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
+    if (!_hasAccess('RECEIVING_EDIT')) {
+      if (!mounted) return;
+      CommonDialog.showNoAccessRightDialog(context);
+      return;
+    }
+    ReceivingDoc? doc;
+    try {
+      final json = await BaseClient.post(
+        ApiEndpoints.getReceiving,
+        body: {
+          'apiKey': _apiKey,
+          'companyGUID': _companyGUID,
+          'userID': _userID,
+          'userSessionID': _userSessionID,
+          'docID': item.docID,
+        },
+      );
+      doc = ReceivingDoc.fromJson(json as Map<String, dynamic>);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text('Failed to load receiving: $e'),
+            behavior: SnackBarBehavior.floating,
+          ));
+      }
+      return;
+    }
+    if (!mounted) return;
+    final updated = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ReceivingFormPage(initialDoc: doc),
+      ),
+    );
+    if (updated == true && mounted) _fetchReceivings(page: _currentPage);
+  }
+
+  Future<void> _onDeleteTap(ReceivingListItem item) async {
+    if (!_hasAccess('RECEIVING_DELETE')) {
+      CommonDialog.showNoAccessRightDialog(context);
+      return;
+    }
+    final confirmed = await CommonDialog.confirmDeleteDialog(context, item.docNo, 'Receiving');
+    if (confirmed != true) return;
+    final ok = await _deleteReceiving(item.docID);
+    if (ok && mounted) {
+      setState(() => _items.removeWhere((e) => e.docID == item.docID));
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+          content: Text('Receiving deleted'),
+          behavior: SnackBarBehavior.floating,
+        ));
+    }
+  }
+    
+  Future<bool> _deleteReceiving(int docID) async {
+    _apiKey = await SessionManager.getApiKey();
+    _companyGUID = await SessionManager.getCompanyGUID();
+    _userSessionID = await SessionManager.getUserSessionID();
+    try {
+      await BaseClient.post(
+        ApiEndpoints.removeReceiving,
+        body: {
+          'apiKey': _apiKey,
+          'companyGUID': _companyGUID,
+          'userID': _userID,
+          'userSessionID': _userSessionID,
+          'docID': docID,
+        },
+      );
+      return true;
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text(e is BadRequestException ? e.message : 'Failed to delete: $e'),
+            behavior: SnackBarBehavior.floating,
+          ));
+      }
+      return false;
+    }
+  }
+
+  Future<void> _onRefresh() => _fetchReceivings(page: 0);
 
   Future<void> _pickFromDate() async {
     final picked = await showDatePicker(
@@ -340,32 +308,25 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
     );
   }
 
-  Future<void> _onDeleteTap(ReceivingListItem item) async {
-    if (!_hasAccess('RECEIVING_DELETE')) {
-      _showNoAccessDialog();
-      return;
-    }
-    final confirmed = await _confirmDelete(item.docNo);
-    if (confirmed != true) return;
-    final ok = await _deleteReceiving(item.docID);
-    if (ok && mounted) {
-      setState(() => _items.removeWhere((e) => e.docID == item.docID));
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(
-          content: Text('Receiving deleted'),
-          behavior: SnackBarBehavior.floating,
-        ));
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    if (!_isInitialized) {
+      return const Scaffold(body: Center(child: DotsLoading()));
+    }
     final primary = Theme.of(context).colorScheme.primary;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Receiving',
-            style: TextStyle(fontWeight: FontWeight.w600)),
+        title: GestureDetector(
+          onDoubleTap: () {
+            if (_scrollController.hasClients) {
+              _scrollController.animateTo(0,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOut);
+            }
+          },
+          child: const Text('Receiving',
+              style: TextStyle(fontWeight: FontWeight.w600)),
+        ),
         centerTitle: true,
         actions: [
           IconButton(
@@ -373,17 +334,16 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
             tooltip: 'New Receiving',
             onPressed: () async {
               if (!_hasAccess('RECEIVING_ADD')) {
-                _showNoAccessDialog();
+                CommonDialog.showNoAccessRightDialog(context);
                 return;
               }
-              final result = await Navigator.push<bool>(
+              final created = await Navigator.push<bool>(
                 context,
                 MaterialPageRoute(
                     builder: (_) => const ReceivingFormPage()),
               );
-              if (result == true && mounted) {
-                _fetchReceivings(page: _currentPage);
-              }
+              if (created == true) _fetchReceivings(page: 0);
+              _refreshDraftFlag();
             },
           ),
         ],
@@ -531,6 +491,20 @@ class _ReceivingListPageState extends State<ReceivingListPage> {
         ((_currentPage + 1) * _itemsPerPage).clamp(0, _totalCount);
     return Column(
       children: [
+        if (_hasDraft) _DraftBanner(
+          onContinue: () async {
+            await Navigator.push<bool>(
+              context,
+              MaterialPageRoute(builder: (_) => const ReceivingFormPage()),
+            );
+            _fetchReceivings(page: 0);
+            _refreshDraftFlag();
+          },
+          onDiscard: () async {
+            await SessionManager.clearQuotationDraft();
+            setState(() => _hasDraft = false);
+          },
+        ),
         if (_items.isEmpty)
           Expanded(child: _buildEmpty())
         else
@@ -775,7 +749,6 @@ class _ReceivingTile extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 6),
-                      if (item.isVoid) _VoidBadge(),
                       const Spacer(),
                       Text(
                         docDate != null
@@ -808,7 +781,25 @@ class _ReceivingTile extends StatelessWidget {
                       else
                         const SizedBox.shrink(),
                       const Spacer(),
-                      if (item.isPutAway)
+                      if (item.isVoid)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            'VOID',
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.red,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      if (!item.isVoid && item.isPutAway)
                         Container(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 6, vertical: 2),
@@ -838,23 +829,65 @@ class _ReceivingTile extends StatelessWidget {
   }
 }
 
-class _VoidBadge extends StatelessWidget {
+class _DraftBanner extends StatelessWidget {
+  final VoidCallback onContinue;
+  final VoidCallback onDiscard;
+
+  const _DraftBanner({required this.onContinue, required this.onDiscard});
+
   @override
   Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      margin: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.red.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(4),
+        color: primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: primary.withValues(alpha: 0.2)),
       ),
-      child: const Text(
-        'VOID',
-        style: TextStyle(
-          fontSize: 9,
-          fontWeight: FontWeight.w800,
-          color: Colors.red,
-          letterSpacing: 0.5,
-        ),
+      child: Row(
+        children: [
+          Icon(Icons.edit_note_rounded, size: 22, color: primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Unsaved Draft',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: primary)),
+                Text('You have a receiving in progress.',
+                    style: TextStyle(
+                        fontSize: 11,
+                        color: primary.withValues(alpha: 0.7))),
+              ],
+            ),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: primary,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            onPressed: onDiscard,
+            child: const Text('Discard', style: TextStyle(fontSize: 12)),
+          ),
+          const SizedBox(width: 4),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+            ),
+            onPressed: onContinue,
+            child: const Text('Continue'),
+          ),
+        ],
       ),
     );
   }

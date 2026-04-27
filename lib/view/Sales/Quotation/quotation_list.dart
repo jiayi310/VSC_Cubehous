@@ -18,7 +18,6 @@ const _sortOptions = [
   ('Doc No', 'DocNo'),
   ('Doc Date', 'DocDate'),
   ('Customer', 'CustomerName'),
-  ('Total', 'FinalTotal'),
 ];
 
 class QuotationListPage extends StatefulWidget {

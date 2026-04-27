@@ -1,36 +1,40 @@
-import 'pagination.dart';
+import 'package:cubehous/common/stock_common.dart';
 
-double _toD(dynamic v) {
-  if (v == null) return 0.0;
-  if (v is num) return v.toDouble();
-  return double.tryParse(v.toString()) ?? 0.0;
-}
+import 'pagination.dart';
 
 class ReceivingListItem {
   final int docID;
   final String docNo;
   final String docDate;
+  final int supplierID;
   final String supplierCode;
   final String supplierName;
   final String? description;
   final String? remark;
   final bool isPutAway;
   final bool isVoid;
-  final int? purchaseDocID;
   final String? purchaseDocNo;
+  final String lastModifiedDateTime;
+  final int lastModifiedUserID;
+  final String createdDateTime;
+  final int createdUserID;
 
   const ReceivingListItem({
     required this.docID,
     required this.docNo,
     required this.docDate,
+    required this.supplierID,
     required this.supplierCode,
     required this.supplierName,
     this.description,
     this.remark,
     required this.isPutAway,
     required this.isVoid,
-    this.purchaseDocID,
     this.purchaseDocNo,
+    required this.lastModifiedDateTime,
+    required this.lastModifiedUserID,
+    required this.createdDateTime,
+    required this.createdUserID
   });
 
   factory ReceivingListItem.fromJson(Map<String, dynamic> json) =>
@@ -38,14 +42,18 @@ class ReceivingListItem {
         docID: (json['docID'] as int?) ?? 0,
         docNo: (json['docNo'] as String?) ?? '',
         docDate: (json['docDate'] as String?) ?? '',
+        supplierID: json['supplierID'] as int ?? 0,
         supplierCode: (json['supplierCode'] as String?) ?? '',
         supplierName: (json['supplierName'] as String?) ?? '',
         description: json['description'] as String?,
         remark: json['remark'] as String?,
         isPutAway: (json['isPutAway'] as bool?) ?? false,
         isVoid: (json['isVoid'] as bool?) ?? false,
-        purchaseDocID: json['purchaseDocID'] as int?,
         purchaseDocNo: json['purchaseDocNo'] as String?,
+        lastModifiedDateTime: (json['lastModifiedDateTime'] as String?) ?? '',
+        lastModifiedUserID : json['lastModifiedUserID'] as int ?? 0,
+        createdDateTime: (json['createdDateTime'] as String?) ?? '',
+        createdUserID : json['createdUserID'] as int ?? 0,
       );
 }
 
@@ -86,9 +94,8 @@ class ReceivingDetailLine {
         stockCode: (json['stockCode'] as String?) ?? '',
         description: (json['description'] as String?) ?? '',
         uom: (json['uom'] as String?) ?? '',
-        qty: _toD(json['qty']),
-        putAwayQty: _toD(json['putAwayQty']),
-        image: json['image'] as String?,
+        qty: StockCommon.toD(json['qty']),
+        putAwayQty: StockCommon.toD(json['putAwayQty']),
       );
 }
 
@@ -111,6 +118,10 @@ class ReceivingDoc {
   final String? remark;
   final bool isPutAway;
   final bool isVoid;
+  final String lastModifiedDateTime;
+  final int lastModifiedUserID;
+  final String createdDateTime;
+  final int createdUserID;
   final int? purchaseDocID;
   final String? purchaseDocNo;
   final List<ReceivingDetailLine> receivingDetails;
@@ -134,6 +145,10 @@ class ReceivingDoc {
     this.remark,
     required this.isPutAway,
     required this.isVoid,
+    required this.lastModifiedDateTime,
+    required this.lastModifiedUserID,
+    required this.createdDateTime,
+    required this.createdUserID,
     this.purchaseDocID,
     this.purchaseDocNo,
     required this.receivingDetails,
@@ -158,6 +173,10 @@ class ReceivingDoc {
         remark: json['remark'] as String?,
         isPutAway: (json['isPutAway'] as bool?) ?? false,
         isVoid: (json['isVoid'] as bool?) ?? false,
+        lastModifiedDateTime: (json['lastModifiedDateTime'] as String?) ?? '',
+        lastModifiedUserID : json['lastModifiedUserID'] as int ?? 0,
+        createdDateTime: (json['createdDateTime'] as String?) ?? '',
+        createdUserID : json['createdUserID'] as int ?? 0,
         purchaseDocID: json['purchaseDocID'] as int?,
         purchaseDocNo: json['purchaseDocNo'] as String?,
         receivingDetails:
@@ -189,27 +208,33 @@ class ReceivingResponse {
 }
 
 /// Lightweight PO item for the PO picker inside the receiving form.
-class ReceivingPurchaseItem {
+class ReceivingSelectedPO {
   final int docID;
   final String docNo;
   final String docDate;
+  final int supplierID;
   final String supplierCode;
   final String supplierName;
+  final double finalTotal;
 
-  const ReceivingPurchaseItem({
+  const ReceivingSelectedPO({
     required this.docID,
     required this.docNo,
     required this.docDate,
+    required this.supplierID,
     required this.supplierCode,
     required this.supplierName,
+    required this.finalTotal,
   });
 
-  factory ReceivingPurchaseItem.fromJson(Map<String, dynamic> json) =>
-      ReceivingPurchaseItem(
+  factory ReceivingSelectedPO.fromJson(Map<String, dynamic> json) =>
+      ReceivingSelectedPO(
         docID: (json['docID'] as int?) ?? 0,
         docNo: (json['docNo'] as String?) ?? '',
         docDate: (json['docDate'] as String?) ?? '',
+        supplierID: (json['supplierID'] as int?) ?? 0,
         supplierCode: (json['supplierCode'] as String?) ?? '',
         supplierName: (json['supplierName'] as String?) ?? '',
+        finalTotal: StockCommon.toD(json['finalTotal']),
       );
 }

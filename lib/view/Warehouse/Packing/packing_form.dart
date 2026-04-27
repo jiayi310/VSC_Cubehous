@@ -784,7 +784,7 @@ class _PackingFormPageState extends State<PackingFormPage> {
                           onPressed: _saving ? null : _save,
                           child: _saving
                               ? const DotsLoading()
-                              : const Text('Save Packing',
+                              : const Text('Save',
                                   style: TextStyle(
                                       fontSize: 15,
                                       fontWeight: FontWeight.w700)),
